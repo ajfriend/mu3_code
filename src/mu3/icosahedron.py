@@ -7,7 +7,11 @@ one at the south, and two antipodal pentagonal rings at latitude
 
 from __future__ import annotations
 
+import cmath
+
 import numpy as np
+
+from . import face_lattice
 
 _LAT = np.arctan(0.5)  # latitude of the two pentagonal rings
 
@@ -152,4 +156,55 @@ def pentagon_face_table() -> np.ndarray:
         for pos, d in enumerate(_PENTAGON_DIGIT_CCW):
             out[p, d - 2] = faces_ccw[pos]
 
+    return out
+
+
+def v_base_face2d(base: int, face: int) -> complex:
+    """2D position of icosa vertex ``base`` in face ``face``'s local frame.
+
+    Returned as a complex number (x + iy) in face-2D coordinates (gnomonic
+    from face center). ``base`` must be a corner of ``face``.
+    """
+    V = vertices()
+    frames = face_frames()
+    center, u, v = frames[face]
+    p = V[base]
+    # Gnomonic inverse: p -> 2D tangent-plane coords at center.
+    denom = p @ center
+    q = p / denom
+    return complex(q @ u, q @ v)
+
+
+def pentagon_embed_factors() -> np.ndarray:
+    """Return (12, 5) complex: embed factor ``A[p, d-2]`` mapping pentagon-Eisenstein
+    offsets to face-2D offsets for base pentagon ``p`` and digit ``d`` ∈ {2..6}.
+
+    Usage: a pentagon-Eisenstein position ``z`` (with ``V[p]`` at origin) whose
+    angular sector points to digit ``d`` embeds into face
+    ``f = pentagon_face_table()[p, d-2]``'s 2D frame as::
+
+        xy = v_base_face2d(p, f) + A[p, d-2] * z
+
+    Derivation: the pentagon cell's vertex toward face f sits at pentagon-
+    Eisenstein position ``(1/sqrt(3)) * h3_digit_offset[d] / |h3_digit_offset[d]|``
+    (magnitude 1/sqrt(3), direction digit d) and must embed to ``(0, 0)`` in
+    face-2D (which is face f's center on the sphere). Solving for A pins
+    ``|A| = r_face * sqrt(3)`` and fixes the rotation per pentagon/face pair.
+    """
+    from .face_lattice import h3_digit_offset
+
+    scale = face_lattice.r_face * (3 ** 0.5)
+    pft = pentagon_face_table()
+
+    out = np.empty((12, 5), dtype=np.complex128)
+    for p in range(12):
+        for d in (2, 3, 4, 5, 6):
+            f = int(pft[p, d - 2])
+            vb = v_base_face2d(p, f)
+            digit_dir = h3_digit_offset[d] / abs(h3_digit_offset[d])
+            # Require: vb + A * (1/sqrt(3)) * digit_dir == 0 (= C_f in face-2D).
+            # So A = -vb * sqrt(3) / digit_dir.
+            out[p, d - 2] = -vb * (3 ** 0.5) / digit_dir
+            # Sanity: |out| must equal r_face * sqrt(3).
+            assert abs(abs(out[p, d - 2]) - scale) < 1e-9
     return out

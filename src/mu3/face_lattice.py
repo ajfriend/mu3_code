@@ -29,8 +29,14 @@ rotated by ``arg(s7b) ≈ +19.106°``.
 from __future__ import annotations
 
 import cmath
+import math
 
 omega = cmath.exp(2j * cmath.pi / 3)
+
+# Face-2D distance from face center to face corner, on the unit icosahedron.
+# Equals tan(arccos(V · C_f)) where V is an icosa vertex and C_f is an
+# incident face center; closed form = sqrt(14 - 6*sqrt(5)) ≈ 0.7639.
+r_face = math.sqrt(14 - 6 * math.sqrt(5))
 
 units = (
     1,
