@@ -101,3 +101,55 @@ def vertex_neighbors() -> np.ndarray:
     out = np.array([sorted(s) for s in adj], dtype=np.int64)
     assert out.shape == (12, 5), f"expected 5 neighbors per vertex, got {out.shape}"
     return out
+
+
+# CCW digit sequence starting from digit 2 (skipping the deleted digit 1).
+# H3 cycle is 1 → 5 → 4 → 6 → 2 → 3 → 1; dropping digit 1 and starting from
+# digit 2 gives the CCW-ordered visit sequence of the 5 surviving digits.
+_PENTAGON_DIGIT_CCW = (2, 3, 5, 4, 6)
+
+
+def pentagon_face_table() -> np.ndarray:
+    """Return (12, 5) int64: ``pentagon_face_table[p, d - 2]`` is the icosa
+    face that digit ``d`` ∈ {2, 3, 4, 5, 6} points into from base pentagon ``p``.
+
+    Derivation (no external tables):
+
+    1. Enumerate the 5 faces incident to pentagon ``p``.
+    2. Sort them CCW around ``V[p]`` in the tangent plane at ``V[p]``,
+       looking from outside the sphere.
+    3. Assign the smallest-index incident face to digit 2.
+    4. Following CCW around the pentagon, assign digits in the cycle
+       ``2, 3, 5, 4, 6`` — which matches H3's CCW digit order with the
+       deleted digit 1 skipped.
+    """
+    V = vertices()
+    F = faces()
+    C = face_centers()
+
+    out = np.empty((12, 5), dtype=np.int64)
+    for p in range(12):
+        incident = np.array(sorted(f for f in range(20) if p in F[f]))
+        assert len(incident) == 5, f"pentagon {p} has {len(incident)} incident faces"
+
+        v = V[p]
+        ref = np.array([0.0, 0.0, 1.0]) if abs(v[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        u = ref - np.dot(ref, v) * v
+        u = u / np.linalg.norm(u)
+        w = np.cross(v, u)
+
+        angles = np.empty(5)
+        for i, f in enumerate(incident):
+            c_tangent = C[f] - np.dot(C[f], v) * v
+            angles[i] = np.arctan2(np.dot(c_tangent, w), np.dot(c_tangent, u))
+
+        # Smallest-index face is already at incident[0] (sorted ascending).
+        # Rotate by its angle so it ends up first in the CCW ordering.
+        rel_angles = (angles - angles[0]) % (2 * np.pi)
+        ccw_order = np.argsort(rel_angles)
+        faces_ccw = incident[ccw_order]
+
+        for pos, d in enumerate(_PENTAGON_DIGIT_CCW):
+            out[p, d - 2] = faces_ccw[pos]
+
+    return out
