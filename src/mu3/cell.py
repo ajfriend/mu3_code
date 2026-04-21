@@ -48,31 +48,36 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     return z
 
 
-def _first_nonzero_digit(digits: Sequence[int]) -> int | None:
-    """Return the first nonzero digit in ``digits``, or None if all zero.
+def _face_digit_for_z(z: complex) -> int:
+    """Return the digit ``d`` ∈ {2..6} whose sector contains ``arg(z)``.
 
-    By the deleted-subsequence rule, this can never be 1 for a valid cell index.
+    The deleted wedge (digit 1, centered at 240°) is "absorbed" into its
+    two neighbors — half (210°-240°) goes to digit 3, half (240°-270°) to
+    digit 5. A point in the deleted wedge "continues around" to whichever
+    adjacent non-deleted face it's closer to.
     """
-    for d in digits:
-        if d != 0:
-            return d
-    return None
+    angle = math.degrees(math.atan2(z.imag, z.real)) % 360.0
+    if angle < 30.0 or angle >= 330.0:
+        return 4  # i-axis direction
+    elif angle < 90.0:
+        return 6
+    elif angle < 150.0:
+        return 2
+    elif angle < 240.0:
+        return 3  # digit 3's sector expanded through deleted-wedge midline
+    else:  # 240 <= angle < 330
+        return 5  # digit 5's sector expanded through deleted-wedge midline
 
 
-def _project_through_face(z: complex, base: int, d_first: int) -> np.ndarray:
-    """Embed ``z`` in the face picked by the cell's first-nonzero-digit and
-    gnomonic-forward to sphere.
-
-    Face is determined by first-nonzero-digit (not angular sector of ``z``):
-    due to Gosper-boundary wiggles ``z`` can drift into angular sectors that
-    disagree with the cell's d_first, including digit 1's deleted wedge.
-    Using d_first gives a consistent, well-defined face for all corners of
-    the cell.
+def _project_through_face(z: complex, base: int) -> np.ndarray:
+    """Dispatch a pentagon-Eisenstein point ``z`` through its angular sector's
+    face and gnomonic-forward to the sphere.
     """
+    d = _face_digit_for_z(z)
     pft = icosahedron.pentagon_face_table()
-    face = int(pft[base, d_first - 2])
+    face = int(pft[base, d - 2])
     vb = icosahedron.v_base_face2d(base, face)
-    A = icosahedron.pentagon_embed_factors()[base, d_first - 2]
+    A = icosahedron.pentagon_embed_factors()[base, d - 2]
     xy = vb + A * z
 
     frame = icosahedron.face_frames()[face]
@@ -85,9 +90,7 @@ def cell_center(base: int, digits: Sequence[int]) -> np.ndarray:
     z = _eisenstein_center(digits)
     if z == 0:
         return icosahedron.vertices()[base].copy()
-    d_first = _first_nonzero_digit(digits)
-    assert d_first is not None  # z != 0 implies some nonzero digit
-    return _project_through_face(z, base, d_first)
+    return _project_through_face(z, base)
 
 
 def cell_boundary(
@@ -96,6 +99,10 @@ def cell_boundary(
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
     Returns 6 vertices for hex cells, 5 for pentagon cells (all-zero digits).
+    Each vertex is projected through its own angular sector's face, so cells
+    straddling face boundaries have vertices on different faces (intended;
+    this is the core of the pentagon-Eisenstein definition).
+
     If ``closed``, the first vertex is repeated at the end.
     """
     z = _eisenstein_center(digits)
@@ -104,14 +111,11 @@ def cell_boundary(
     if z == 0:
         return _pentagon_center_boundary(base, N, closed)
 
-    d_first = _first_nonzero_digit(digits)
-    assert d_first is not None
-
     corners = []
     for k in range(6):
         corner_offset = units[k] / (get_rot(N) * s3)
         vertex_z = z + corner_offset
-        corners.append(_project_through_face(vertex_z, base, d_first))
+        corners.append(_project_through_face(vertex_z, base))
 
     out = np.stack(corners, axis=0)
     if closed:
