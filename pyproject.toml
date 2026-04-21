@@ -1,0 +1,27 @@
+[project]
+name = "mu3"
+version = "0.0.1"
+description = "Prototype icosahedral aperture-7 DGGS with swappable projections"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "AJ Friend", email = "ajfriend@gmail.com" }
+]
+dependencies = [
+    "numpy",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+    "jupyterlab",
+    "matplotlib",
+    "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mu3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
