@@ -26,6 +26,11 @@ def enumerate_cells(r: int):
             yield (base, ())
             continue
         for digits in itertools.product(range(7), repeat=r):
+            # We don't skip digit-1 descendants anymore here; 
+            # cell_boundary now handles the folding of those areas.
+            # However, for pure DGGS indexing, digit-1 centers are usually 
+            # forbidden. Let's see if including them makes a better plot.
+            # If we want a valid tiling, we still skip the centers.
             first_nonzero = next((d for d in digits if d != 0), None)
             if first_nonzero == 1:
                 continue
@@ -61,7 +66,7 @@ def main() -> None:
     print(f"icosahedron: {len(icosa_lines)} edges")
 
     data = {"cells_by_res": cells_by_res, "icosahedron_edges": icosa_lines}
-    data_json = json.dumps(data, separators=(",", ":"))
+    data_json = json.dumps(data)
 
     out = Path(__file__).resolve().parent.parent / "figures" / "mu3_globe.html"
     out.parent.mkdir(exist_ok=True)
@@ -82,7 +87,6 @@ def main() -> None:
   .panel .count { color: #888; font-size: 12px; margin: 0 0 6px 0; }
   .globe { width: 100%; aspect-ratio: 1; cursor: grab; }
   .globe:active { cursor: grabbing; }
-  .hint { color: #888; font-size: 11px; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -102,7 +106,8 @@ def main() -> None:
 
   const DATA = __DATA_PLACEHOLDER__;
 
-  // d3 expects CW outer rings; our rings are CCW GeoJSON-style. Reverse them.
+  // d3 expects CW outer rings for small polygons on a sphere (right-hand rule).
+  // mu3 returns CCW GeoJSON-style rings. Reverse them.
   for (const key of Object.keys(DATA.cells_by_res)) {
     DATA.cells_by_res[key] = DATA.cells_by_res[key].map(
       polygon => polygon.map(ring => ring.slice().reverse())
@@ -127,14 +132,18 @@ def main() -> None:
 
   function setupGlobe(res, containerId) {
     const container = document.getElementById(containerId);
+    
+    // GeoJSON MultiPolygon for the grid
     const gridFeature = {
       type: 'Feature',
-      geometry: { type: 'MultiPolygon', coordinates: DATA.cells_by_res[res] }
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: DATA.cells_by_res[res]
+      }
     };
 
     function getSize() {
-      const w = container.offsetWidth || 400;
-      return Math.max(280, Math.min(520, w));
+      return container.offsetWidth || 400;
     }
 
     function render() {
@@ -144,12 +153,12 @@ def main() -> None:
       const plot = Plot.plot({
         width: size,
         height: size,
-        projection: { type: 'orthographic', rotate: sharedRotate.slice(), inset: 1 },
+        projection: { type: 'orthographic', rotate: sharedRotate.slice(), inset: 2 },
         marks: [
-          Plot.graticule({ strokeOpacity: 0.08 }),
-          Plot.geo(icosaFeature, { stroke: '#888', strokeWidth: 1.0, strokeOpacity: 0.6 }),
-          Plot.geo(gridFeature, { stroke: '#c33', strokeWidth: 0.7, fill: '#e55', fillOpacity: 0.15 }),
-          Plot.sphere({ strokeWidth: 1.5 })
+          Plot.graticule({ strokeOpacity: 0.1 }),
+          Plot.geo(icosaFeature, { stroke: '#888', strokeWidth: 1.5, strokeOpacity: 0.5 }),
+          Plot.geo(gridFeature, { stroke: '#c33', strokeWidth: 0.5, fill: '#e55', fillOpacity: 0.2 }),
+          Plot.sphere({ strokeWidth: 2 })
         ]
       });
 
