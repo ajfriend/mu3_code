@@ -8,6 +8,7 @@ one at the south, and two antipodal pentagonal rings at latitude
 from __future__ import annotations
 
 import cmath
+from functools import lru_cache
 
 import numpy as np
 
@@ -16,6 +17,10 @@ from . import face_lattice
 _LAT = np.arctan(0.5)  # latitude of the two pentagonal rings
 
 
+# Results of these builders are cached: the icosahedron is fixed, and
+# callers in the projection pipeline hit these on every corner. The returned
+# numpy arrays are treated as read-only (do not mutate in place).
+@lru_cache(maxsize=None)
 def vertices() -> np.ndarray:
     """Return the 12 unit-sphere icosahedron vertices as a (12, 3) array.
 
@@ -34,6 +39,7 @@ def vertices() -> np.ndarray:
     return np.vstack([north, up, dn, south])
 
 
+@lru_cache(maxsize=None)
 def faces() -> np.ndarray:
     """Return the 20 triangular faces as a (20, 3) array of vertex indices.
 
@@ -56,6 +62,7 @@ def faces() -> np.ndarray:
     return np.array(faces, dtype=np.int64)
 
 
+@lru_cache(maxsize=None)
 def face_centers() -> np.ndarray:
     """Return (20, 3) unit-sphere face centers (centroids, renormalized)."""
     V = vertices()
@@ -64,6 +71,7 @@ def face_centers() -> np.ndarray:
     return c / np.linalg.norm(c, axis=1, keepdims=True)
 
 
+@lru_cache(maxsize=None)
 def face_i_vertex() -> np.ndarray:
     """Return (20,) array: for each face, which of its vertex indices defines the i-axis.
 
@@ -73,6 +81,7 @@ def face_i_vertex() -> np.ndarray:
     return faces()[:, 0].copy()
 
 
+@lru_cache(maxsize=None)
 def face_frames() -> np.ndarray:
     """Return (20, 3, 3): per-face orthonormal 3D frame.
 
@@ -90,6 +99,7 @@ def face_frames() -> np.ndarray:
     return np.stack([C, u, v], axis=1)
 
 
+@lru_cache(maxsize=None)
 def vertex_neighbors() -> np.ndarray:
     """Return (12, 5) array: the 5 icosa-vertex neighbors of each vertex.
 
@@ -113,6 +123,7 @@ def vertex_neighbors() -> np.ndarray:
 _PENTAGON_DIGIT_CCW = (2, 3, 5, 4, 6)
 
 
+@lru_cache(maxsize=None)
 def pentagon_face_table() -> np.ndarray:
     """Return (12, 5) int64: ``pentagon_face_table[p, d - 2]`` is the icosa
     face that digit ``d`` ∈ {2, 3, 4, 5, 6} points into from base pentagon ``p``.
@@ -175,6 +186,7 @@ def v_base_face2d(base: int, face: int) -> complex:
     return complex(q @ u, q @ v)
 
 
+@lru_cache(maxsize=None)
 def pentagon_embed_factors() -> np.ndarray:
     """Return (12, 5) complex: embed factor ``A[p, d-2]`` mapping pentagon-Eisenstein
     offsets to face-2D offsets for base pentagon ``p`` and digit ``d`` ∈ {2..6}.

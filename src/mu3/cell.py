@@ -20,6 +20,7 @@ formula.
 
 from __future__ import annotations
 
+import cmath
 import math
 from typing import Sequence
 
@@ -37,6 +38,10 @@ from .face_lattice import (
 )
 from .projection import Gnomonic
 
+# +60° rotation in the pentagon-Eisenstein plane (used to stitch the deleted
+# d=1 wedge onto d=5's natural wedge).
+_ROT60 = cmath.exp(1j * math.pi / 3)
+
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:
     """Pentagon-Eisenstein position ``z`` for the given digit sequence."""
@@ -48,37 +53,45 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     return z
 
 
-def _face_digit_for_z(z: complex) -> int:
-    """Return the digit ``d`` ∈ {2..6} whose sector contains ``arg(z)``.
+def _face_digit_and_z(z_lattice: complex, z: complex) -> tuple[int, complex]:
+    """Classify a lattice position into a projecting face digit.
 
-    The deleted wedge (digit 1, centered at 240°) is "absorbed" into its
-    two neighbors — half (210°-240°) goes to digit 3, half (240°-270°) to
-    digit 5. A point in the deleted wedge "continues around" to whichever
-    adjacent non-deleted face it's closer to.
+    The icosahedron vertex has 5 incident faces but the Eisenstein lattice
+    has 6 wedges, one of which (centered on the d=1 ray at 240°) is the
+    deleted direction. That whole deleted wedge [210°, 270°) is absorbed
+    into d=5 as a unit: any point inside it is rotated by +60°, which
+    lands it in d=5's natural wedge [270°, 330°). No midline split.
+
+    Classification is done in lattice-space (unrotated) to be invariant to
+    aperture-7 resolution twists. Wedges are axis-centered on the digit rays.
     """
-    angle = math.degrees(math.atan2(z.imag, z.real)) % 360.0
+    angle = math.degrees(math.atan2(z_lattice.imag, z_lattice.real)) % 360.0
+
     if angle < 30.0 or angle >= 330.0:
-        return 4  # i-axis direction
+        return 4, z  # d=4 wedge, centered on 0°
     elif angle < 90.0:
-        return 6
+        return 6, z  # d=6 wedge, centered on 60°
     elif angle < 150.0:
-        return 2
-    elif angle < 240.0:
-        return 3  # digit 3's sector expanded through deleted-wedge midline
-    else:  # 240 <= angle < 330
-        return 5  # digit 5's sector expanded through deleted-wedge midline
+        return 2, z  # d=2 wedge, centered on 120°
+    elif angle < 210.0:
+        return 3, z  # d=3 wedge, centered on 180°
+    elif angle < 270.0:
+        return 5, z * _ROT60  # deleted wedge absorbed into d=5 via +60°
+    else:
+        return 5, z  # d=5 wedge, centered on 300°
 
 
-def _project_through_face(z: complex, base: int) -> np.ndarray:
+def _project_through_face(z: complex, base: int, res: int) -> np.ndarray:
     """Dispatch a pentagon-Eisenstein point ``z`` through its angular sector's
     face and gnomonic-forward to the sphere.
     """
-    d = _face_digit_for_z(z)
+    z_lattice = z * get_rot(res)
+    d, z_use = _face_digit_and_z(z_lattice, z)
     pft = icosahedron.pentagon_face_table()
     face = int(pft[base, d - 2])
     vb = icosahedron.v_base_face2d(base, face)
     A = icosahedron.pentagon_embed_factors()[base, d - 2]
-    xy = vb + A * z
+    xy = vb + A * z_use
 
     frame = icosahedron.face_frames()[face]
     gn = Gnomonic(center=frame[0], up=frame[1])
@@ -90,7 +103,7 @@ def cell_center(base: int, digits: Sequence[int]) -> np.ndarray:
     z = _eisenstein_center(digits)
     if z == 0:
         return icosahedron.vertices()[base].copy()
-    return _project_through_face(z, base)
+    return _project_through_face(z, base, res=len(digits))
 
 
 def cell_boundary(
@@ -100,10 +113,7 @@ def cell_boundary(
 
     Returns 6 vertices for hex cells, 5 for pentagon cells (all-zero digits).
     Each vertex is projected through its own angular sector's face, so cells
-    straddling face boundaries have vertices on different faces (intended;
-    this is the core of the pentagon-Eisenstein definition).
-
-    If ``closed``, the first vertex is repeated at the end.
+    straddling face boundaries have vertices on different faces.
     """
     z = _eisenstein_center(digits)
     N = len(digits)
@@ -115,7 +125,7 @@ def cell_boundary(
     for k in range(6):
         corner_offset = units[k] / (get_rot(N) * s3)
         vertex_z = z + corner_offset
-        corners.append(_project_through_face(vertex_z, base))
+        corners.append(_project_through_face(vertex_z, base, res=N))
 
     out = np.stack(corners, axis=0)
     if closed:
