@@ -1,62 +1,38 @@
 """Tiling invariants for mu3 cells on the sphere.
 
-Checks that the cells produced by scripts/plot_pentagon_globe.py form a
-proper tiling at each resolution:
+At every resolution the cells from ``mu3.cell_boundary`` should form a
+proper tiling of the sphere:
 
   1. Every unique 3D vertex is incident to exactly 3 cells.
   2. Every undirected edge appears in exactly 2 cells.
-  3. The summed (signed) spherical area of all cells equals 4π.
-
-(1) and (2) together imply Euler's formula V - E + F = 2; (3) rules out
-overlaps and gaps that happen to preserve the corner/edge counts.
+  3. The summed signed spherical area of all cells equals 4π.
+  4. V - E + F = 2 (sphere Euler characteristic — implied by (1) and (2)).
 """
 
 from __future__ import annotations
 
 import itertools
-import sys
 from collections import Counter
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-# plot_pentagon_globe lives in scripts/; add it to the path.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-
-from plot_pentagon_globe import (  # noqa: E402
-    build_similarity_maps,
-    cell_ring,
-    first_nonzero_digit,
-)
+from mu3 import cell_boundary
 
 
-# Floating-point rounding for vertex-equality checks. The cell-corner pipeline
-# is a chain of similarity transforms + gnomonic forward, so adjacent cells'
-# shared corners agree to well below 1e-12; rounding to 10 decimals is plenty.
+# Vertices from different cells that share a corner agree to well below
+# 1e-12 via the per-face similarity + gnomonic pipeline. Rounding to 10
+# decimals is plenty for equality and tight enough not to conflate nearby
+# distinct corners at deeper resolutions.
 ROUND = 10
 
 
-def _lnglat_to_unit(lng: float, lat: float) -> np.ndarray:
-    lng_r, lat_r = np.radians(lng), np.radians(lat)
-    return np.array([
-        np.cos(lat_r) * np.cos(lng_r),
-        np.cos(lat_r) * np.sin(lng_r),
-        np.sin(lat_r),
-    ])
-
-
-def _cell_unique_corners(p: int, digits: tuple, maps) -> list[np.ndarray]:
-    """Unique 3D unit vectors at the corners of cell (p, digits).
-
-    The pentagon cell's ring has 6 entries of which two (stitched k=3 and k=4)
-    coincide; deduping yields 5. Hex cells yield 6.
-    """
-    ring = cell_ring(p, digits, maps)
+def _unique_corners(base: int, digits: tuple) -> list[np.ndarray]:
+    """3D unit vectors at the cell corners, deduped (pentagon ↦ 5, hex ↦ 6)."""
+    bnd = cell_boundary(base, digits, closed=False)
     seen: set[tuple] = set()
     out: list[np.ndarray] = []
-    for lng, lat in ring[:-1]:  # drop closing duplicate
-        v = _lnglat_to_unit(lng, lat)
+    for v in bnd:
         key = tuple(np.round(v, ROUND))
         if key in seen:
             continue
@@ -66,26 +42,16 @@ def _cell_unique_corners(p: int, digits: tuple, maps) -> list[np.ndarray]:
 
 
 def _enumerate_cells(res: int):
-    """(base_pentagon, digits) for every valid mu3 cell at resolution res."""
+    """(base, digits) for every valid mu3 cell at resolution res."""
     for p in range(12):
         if res == 0:
             yield (p, ())
             continue
         for digits in itertools.product(range(7), repeat=res):
-            if first_nonzero_digit(digits) == 1:
+            first_nz = next((d for d in digits if d != 0), None)
+            if first_nz == 1:
                 continue
             yield (p, digits)
-
-
-def _cached_maps():
-    cache: dict[int, dict] = {}
-
-    def get(p: int):
-        if p not in cache:
-            cache[p] = build_similarity_maps(p)
-        return cache[p]
-
-    return get
 
 
 def _spherical_polygon_area(V: list[np.ndarray]) -> float:
@@ -107,10 +73,9 @@ def _spherical_polygon_area(V: list[np.ndarray]) -> float:
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_vertex_incidence(res):
     """Every unique 3D corner is shared by exactly 3 cells."""
-    get = _cached_maps()
     all_verts: list[tuple] = []
     for p, digits in _enumerate_cells(res):
-        for v in _cell_unique_corners(p, digits, get(p)):
+        for v in _unique_corners(p, digits):
             all_verts.append(tuple(np.round(v, ROUND)))
     counts = Counter(all_verts)
     wrong = [(v, c) for v, c in counts.items() if c != 3]
@@ -123,10 +88,9 @@ def test_vertex_incidence(res):
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_edge_sharing(res):
     """Every undirected edge appears in exactly 2 cells."""
-    get = _cached_maps()
     edges: list[tuple] = []
     for p, digits in _enumerate_cells(res):
-        V = _cell_unique_corners(p, digits, get(p))
+        V = _unique_corners(p, digits)
         n = len(V)
         for i in range(n):
             a = tuple(np.round(V[i], ROUND))
@@ -143,10 +107,9 @@ def test_edge_sharing(res):
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_full_coverage(res):
     """Sum of all cell areas equals 4π (no gaps, no overlaps)."""
-    get = _cached_maps()
     total = 0.0
     for p, digits in _enumerate_cells(res):
-        V = _cell_unique_corners(p, digits, get(p))
+        V = _unique_corners(p, digits)
         total += _spherical_polygon_area(V)
     assert abs(total - 4.0 * np.pi) < 1e-9, (
         f"res={res}: summed area = {total:.12f}, expected 4π = {4*np.pi:.12f}, "
@@ -157,12 +120,11 @@ def test_full_coverage(res):
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_euler_formula(res):
     """V - E + F = 2 (sphere Euler characteristic)."""
-    get = _cached_maps()
     verts: set = set()
     edges: set = set()
     F = 0
     for p, digits in _enumerate_cells(res):
-        V = _cell_unique_corners(p, digits, get(p))
+        V = _unique_corners(p, digits)
         F += 1
         for i, v in enumerate(V):
             verts.add(tuple(np.round(v, ROUND)))
