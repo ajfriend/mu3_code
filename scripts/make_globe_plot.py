@@ -7,13 +7,12 @@ Cells come straight from the library: ``mu3.cell_boundary(cell)`` where
 
 from __future__ import annotations
 
-import itertools
 import json
 from pathlib import Path
 
 import numpy as np
 
-from mu3 import cell_boundary, icosahedron
+from mu3 import cell_boundary, cells_at_res, icosahedron
 
 
 def unit_to_lnglat(v: np.ndarray) -> list[float]:
@@ -21,18 +20,6 @@ def unit_to_lnglat(v: np.ndarray) -> list[float]:
     lng = float(np.degrees(np.arctan2(y, x)))
     lat = float(np.degrees(np.arcsin(max(-1.0, min(1.0, z)))))
     return [lng, lat]
-
-
-def enumerate_cells(r: int):
-    for base in range(12):
-        if r == 0:
-            yield (base,)
-            continue
-        for digits in itertools.product(range(7), repeat=r):
-            first_nonzero = next((d for d in digits if d != 0), None)
-            if first_nonzero == 1:
-                continue
-            yield (base, *digits)
 
 
 def cell_ring(cell: tuple) -> list[list[float]]:
@@ -55,7 +42,7 @@ def main() -> None:
     cells_by_res: dict[str, list] = {}
     for r in (0, 1, 2, 3):
         polys = []
-        for cell in enumerate_cells(r):
+        for cell in cells_at_res(r):
             polys.append([cell_ring(cell)])
         cells_by_res[str(r)] = polys
         print(f"res {r}: {len(polys)} cells")

@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from mu3 import cell_boundary, cell_center, icosahedron, is_valid_cell
+from mu3 import cell_boundary, cell_center, cells_at_res, icosahedron, is_valid_cell
 
 
 # ---------- sanity: identity / pentagon-center behavior ----------
@@ -222,3 +222,53 @@ def test_is_valid_cell_accepts_numpy_ints():
     assert is_valid_cell(tuple(int(x) for x in arr))
     # raw numpy scalars in a tuple also OK
     assert is_valid_cell(tuple(arr))
+
+
+# ---------- cells_at_res ----------
+
+
+def _valid_count(res: int) -> int:
+    """12 * (7^res - number of paths whose first nonzero digit is 1)."""
+    if res == 0:
+        return 12
+    return 12 * (7 ** res - (7 ** res - 1) // 6)
+
+
+@pytest.mark.parametrize("res,expected", [(0, 12), (1, 72), (2, 492), (3, 3432)])
+def test_cells_at_res_count(res, expected):
+    assert sum(1 for _ in cells_at_res(res)) == expected
+    # formula agrees with the hand-derived counts
+    assert _valid_count(res) == expected
+
+
+@pytest.mark.parametrize("res", [0, 1, 2, 3])
+def test_cells_at_res_all_valid(res):
+    for cell in cells_at_res(res):
+        assert is_valid_cell(cell), f"invalid cell yielded: {cell}"
+        assert len(cell) == res + 1
+
+
+@pytest.mark.parametrize("res", [0, 1, 2, 3])
+def test_cells_at_res_no_duplicates(res):
+    seen = set()
+    for cell in cells_at_res(res):
+        assert cell not in seen, f"duplicate: {cell}"
+        seen.add(cell)
+
+
+def test_cells_at_res_negative_raises():
+    with pytest.raises(ValueError):
+        list(cells_at_res(-1))
+
+
+def test_cells_at_res_is_an_iterator():
+    import itertools as _it
+    it = cells_at_res(2)
+    # should be lazy (an iterator / generator), not a list
+    assert hasattr(it, "__next__")
+    # first 5 cells without exhausting the generator
+    first_five = list(_it.islice(it, 5))
+    assert len(first_five) == 5
+    # remaining items are still accessible
+    rest = list(it)
+    assert len(first_five) + len(rest) == 492

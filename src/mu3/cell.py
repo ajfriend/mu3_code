@@ -27,9 +27,10 @@ k=4 — so the 6-corner hex formula naturally produces a 5-gon.
 from __future__ import annotations
 
 import cmath
+import itertools
 import math
 from functools import lru_cache
-from typing import Sequence
+from typing import Iterator, Sequence
 
 import numpy as np
 
@@ -172,6 +173,30 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
             continue
         z += h3_digit_offset[d] / get_rot(k)
     return z
+
+
+def cells_at_res(res: int) -> Iterator[tuple]:
+    """Yield every valid mu3 cell at resolution ``res``, in canonical order
+    (by base, then by digit-sequence lexicographic order, skipping any path
+    whose first nonzero child digit is 1).
+
+    Counts:
+      - res 0:   12
+      - res N:   12 * (7**N - (7**N - 1)//6)    [= 72, 492, 3432, ... for N=1,2,3]
+
+    Streaming — no intermediate list is built.
+    """
+    if res < 0:
+        raise ValueError(f"resolution must be >= 0; got {res}")
+    for base in range(12):
+        if res == 0:
+            yield (base,)
+            continue
+        for digits in itertools.product(range(7), repeat=res):
+            first_nz = next((d for d in digits if d != 0), None)
+            if first_nz == 1:
+                continue
+            yield (base, *digits)
 
 
 def is_valid_cell(cell) -> bool:

@@ -11,13 +11,12 @@ proper tiling of the sphere:
 
 from __future__ import annotations
 
-import itertools
 from collections import Counter
 
 import numpy as np
 import pytest
 
-from mu3 import cell_boundary
+from mu3 import cell_boundary, cells_at_res
 
 
 # Vertices from different cells that share a corner agree to well below
@@ -41,19 +40,6 @@ def _unique_corners(cell: tuple) -> list[np.ndarray]:
     return out
 
 
-def _enumerate_cells(res: int):
-    """Every valid mu3 cell (as a flat tuple) at resolution res."""
-    for p in range(12):
-        if res == 0:
-            yield (p,)
-            continue
-        for digits in itertools.product(range(7), repeat=res):
-            first_nz = next((d for d in digits if d != 0), None)
-            if first_nz == 1:
-                continue
-            yield (p, *digits)
-
-
 def _spherical_polygon_area(V: list[np.ndarray]) -> float:
     """Signed spherical polygon area (unit sphere), CCW → positive.
 
@@ -74,7 +60,7 @@ def _spherical_polygon_area(V: list[np.ndarray]) -> float:
 def test_vertex_incidence(res):
     """Every unique 3D corner is shared by exactly 3 cells."""
     all_verts: list[tuple] = []
-    for cell in _enumerate_cells(res):
+    for cell in cells_at_res(res):
         for v in _unique_corners(cell):
             all_verts.append(tuple(np.round(v, ROUND)))
     counts = Counter(all_verts)
@@ -89,7 +75,7 @@ def test_vertex_incidence(res):
 def test_edge_sharing(res):
     """Every undirected edge appears in exactly 2 cells."""
     edges: list[tuple] = []
-    for cell in _enumerate_cells(res):
+    for cell in cells_at_res(res):
         V = _unique_corners(cell)
         n = len(V)
         for i in range(n):
@@ -108,7 +94,7 @@ def test_edge_sharing(res):
 def test_full_coverage(res):
     """Sum of all cell areas equals 4π (no gaps, no overlaps)."""
     total = 0.0
-    for cell in _enumerate_cells(res):
+    for cell in cells_at_res(res):
         V = _unique_corners(cell)
         total += _spherical_polygon_area(V)
     assert abs(total - 4.0 * np.pi) < 1e-9, (
@@ -123,7 +109,7 @@ def test_euler_formula(res):
     verts: set = set()
     edges: set = set()
     F = 0
-    for cell in _enumerate_cells(res):
+    for cell in cells_at_res(res):
         V = _unique_corners(cell)
         F += 1
         for i, v in enumerate(V):
