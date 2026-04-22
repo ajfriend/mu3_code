@@ -19,7 +19,7 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from mu3 import cell_boundary, cells_at_res
+from mu3 import cell_area, cell_boundary, cells_at_res
 
 
 # Vertices from different cells that share a corner agree to well below
@@ -27,22 +27,6 @@ from mu3 import cell_boundary, cells_at_res
 # decimals is plenty for equality and tight enough not to conflate nearby
 # distinct corners at deeper resolutions.
 ROUND = 10
-
-
-def _spherical_polygon_area(V: np.ndarray) -> float:
-    """Signed spherical polygon area on the unit sphere, CCW → positive.
-
-    Van Oosterom–Strackee formula summed over a triangle fan from V[0].
-    """
-    n = len(V)
-    total = 0.0
-    v0 = V[0]
-    for i in range(1, n - 1):
-        a, b = V[i], V[i + 1]
-        num = float(np.dot(v0, np.cross(a, b)))
-        den = 1.0 + float(np.dot(v0, a)) + float(np.dot(a, b)) + float(np.dot(b, v0))
-        total += 2.0 * np.arctan2(num, den)
-    return total
 
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
@@ -81,25 +65,20 @@ def test_edge_sharing(res):
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_full_coverage(res):
-    """Sum of all cell areas equals 4π (no gaps, no overlaps)."""
+    """Every cell has positive area, and they sum to the area of the sphere.
+
+    Catches gaps (sum < 4π), overlaps (sum > 4π), and any cell that came
+    out CW instead of CCW (would contribute negatively to the sum).
+    """
     total = 0.0
     for cell in cells_at_res(res):
-        total += _spherical_polygon_area(cell_boundary(cell, closed=False))
+        area = cell_area(cell)
+        assert area > 0, f"res={res}, cell={cell}: area {area:.3e} not positive"
+        total += area
     assert abs(total - 4.0 * np.pi) < 1e-9, (
         f"res={res}: summed area = {total:.12f}, expected 4π = {4*np.pi:.12f}, "
         f"diff = {total - 4*np.pi:.3e}"
     )
-
-
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
-def test_all_cells_ccw(res):
-    """Every cell's boundary is CCW when viewed from outside the sphere
-    (GeoJSON / right-hand convention). Signed spherical area is positive."""
-    for cell in cells_at_res(res):
-        area = _spherical_polygon_area(cell_boundary(cell, closed=False))
-        assert area > 0, (
-            f"res={res}, cell={cell}: signed area {area:.3e} (CW, not CCW)"
-        )
 
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])

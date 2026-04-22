@@ -3,7 +3,14 @@ import math
 import numpy as np
 import pytest
 
-from mu3 import cell_boundary, cell_center, cells_at_res, icosahedron, is_valid_cell
+from mu3 import (
+    cell_area,
+    cell_boundary,
+    cell_center,
+    cells_at_res,
+    icosahedron,
+    is_valid_cell,
+)
 
 
 # ---------- sanity: identity / pentagon-center behavior ----------
@@ -272,3 +279,25 @@ def test_cells_at_res_is_an_iterator():
     # remaining items are still accessible
     rest = list(it)
     assert len(first_five) + len(rest) == 492
+
+
+# ---------- cell_area ----------
+
+
+def test_cell_area_res0_equal_and_sum_to_sphere():
+    """Res 0 tiles the sphere with 12 pentagons; by icosa symmetry they
+    all have the same area, which sums to 4π."""
+    areas = [cell_area((b,)) for b in range(12)]
+    for a in areas:
+        assert a > 0
+    # all 12 equal
+    assert max(areas) - min(areas) < 1e-10
+    assert abs(sum(areas) - 4.0 * math.pi) < 1e-10
+    # each ≈ π/3
+    assert abs(areas[0] - math.pi / 3) < 1e-10
+
+
+def test_cell_area_returns_python_float():
+    # callers shouldn't have to deal with numpy scalars leaking out
+    assert isinstance(cell_area((0,)), float)
+    assert isinstance(cell_area((0, 3, 5, 2)), float)

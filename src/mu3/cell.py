@@ -248,6 +248,33 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
     return _project(_eisenstein_center(digits), base)
 
 
+def _spherical_polygon_area(V: np.ndarray) -> float:
+    """Signed spherical polygon area on the unit sphere (steradians).
+
+    Van Oosterom–Strackee formula summed over a triangle fan from V[0].
+    CCW rings (viewed from outside the sphere) give positive area.
+    """
+    n = len(V)
+    total = 0.0
+    v0 = V[0]
+    for i in range(1, n - 1):
+        a, b = V[i], V[i + 1]
+        num = float(np.dot(v0, np.cross(a, b)))
+        den = 1.0 + float(np.dot(v0, a)) + float(np.dot(a, b)) + float(np.dot(b, v0))
+        total += 2.0 * math.atan2(num, den)
+    return float(total)
+
+
+def cell_area(cell: Sequence[int]) -> float:
+    """Spherical area of the cell, in steradians (unit-sphere).
+
+    Signed: CCW cells — the library's convention — are positive. Sum over
+    every cell at a given resolution equals 4π (the sphere). For absolute
+    area, take ``abs(cell_area(cell))``.
+    """
+    return _spherical_polygon_area(cell_boundary(cell, closed=False))
+
+
 def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
