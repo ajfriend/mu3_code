@@ -174,6 +174,49 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     return z
 
 
+def is_valid_cell(cell) -> bool:
+    """True iff ``cell`` is a valid mu3 cell index.
+
+    A valid cell is a sequence of integers ``(base, d_1, ..., d_N)`` where:
+      - ``base ∈ {0, ..., 11}`` (one of 12 icosa vertex pentagons)
+      - each ``d_k ∈ {0, ..., 6}``
+      - the first nonzero child digit (if any) is not 1
+        (digit 1 is the pentagon-deleted direction, so no cell can step
+        into it from the base pentagon or from a pentagon-center ancestor)
+
+    Non-sequence inputs, non-integer elements, and empty inputs all return
+    False rather than raising.
+    """
+    try:
+        n = len(cell)
+    except TypeError:
+        return False
+    if n < 1:
+        return False
+
+    def _is_int(x) -> bool:
+        # accept plain ints and numpy integer scalars; reject bool (True/False
+        # are ints by subclassing, but that's almost always a mistake here)
+        return isinstance(x, (int, np.integer)) and not isinstance(x, bool)
+
+    base = cell[0]
+    if not _is_int(base) or not 0 <= int(base) < 12:
+        return False
+
+    seen_nonzero = False
+    for d in cell[1:]:
+        if not _is_int(d):
+            return False
+        dv = int(d)
+        if not 0 <= dv <= 6:
+            return False
+        if not seen_nonzero and dv != 0:
+            if dv == 1:
+                return False
+            seen_nonzero = True
+    return True
+
+
 def cell_center(cell: Sequence[int]) -> np.ndarray:
     """Unit 3-vector on the sphere for ``cell = (base, d_1, ..., d_N)``."""
     base, digits = cell[0], cell[1:]

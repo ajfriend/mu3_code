@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from mu3 import cell_boundary, cell_center, icosahedron
+from mu3 import cell_boundary, cell_center, icosahedron, is_valid_cell
 
 
 # ---------- sanity: identity / pentagon-center behavior ----------
@@ -156,3 +156,69 @@ def test_pentagon_center_at_depth_shrinks():
         assert b < a
     # 2-step ratio converges to 7 (tighter tolerance at deeper levels)
     assert abs(radii[-3] / radii[-1] - 7.0) < 0.2
+
+
+# ---------- is_valid_cell ----------
+
+
+def test_is_valid_cell_res0():
+    for b in range(12):
+        assert is_valid_cell((b,))
+
+
+def test_is_valid_cell_hex_paths():
+    # single nonzero child digit (not 1)
+    for b in range(12):
+        for d in (2, 3, 4, 5, 6):
+            assert is_valid_cell((b, d))
+    # mixed deeper paths — digit 1 is fine AFTER the first nonzero
+    assert is_valid_cell((3, 2, 1, 0, 1, 6))
+    assert is_valid_cell((0, 0, 0, 5, 1, 1, 1))
+    assert is_valid_cell((11, 6, 3, 4, 2, 5))
+
+
+def test_is_valid_cell_all_zero_digits():
+    # pentagon-center cells at any depth
+    for b in range(12):
+        for N in range(0, 10):
+            assert is_valid_cell((b, *(0,) * N))
+
+
+def test_is_valid_cell_rejects_empty():
+    assert not is_valid_cell(())
+
+
+def test_is_valid_cell_rejects_base_out_of_range():
+    assert not is_valid_cell((-1,))
+    assert not is_valid_cell((12,))
+    assert not is_valid_cell((100,))
+    assert not is_valid_cell((-1, 2, 3))
+
+
+def test_is_valid_cell_rejects_digit_out_of_range():
+    assert not is_valid_cell((0, 7))
+    assert not is_valid_cell((0, -1))
+    assert not is_valid_cell((0, 3, 99))
+
+
+def test_is_valid_cell_rejects_deleted_direction():
+    # first nonzero child = 1
+    assert not is_valid_cell((0, 1))
+    assert not is_valid_cell((5, 0, 1))
+    assert not is_valid_cell((11, 0, 0, 0, 1, 2, 3))
+
+
+def test_is_valid_cell_rejects_non_sequences_and_non_ints():
+    assert not is_valid_cell(None)
+    assert not is_valid_cell(5)
+    assert not is_valid_cell("hello")
+    assert not is_valid_cell((0, 2.0))       # float digit
+    assert not is_valid_cell((0.5, 2))       # float base
+    assert not is_valid_cell((0, "a"))       # string digit
+
+
+def test_is_valid_cell_accepts_numpy_ints():
+    arr = np.array([3, 2, 5, 6], dtype=np.int64)
+    assert is_valid_cell(tuple(int(x) for x in arr))
+    # raw numpy scalars in a tuple also OK
+    assert is_valid_cell(tuple(arr))
