@@ -4,43 +4,160 @@ A cell index is ``(base, digits)`` where ``base`` is an icosa vertex index
 (0..11) and ``digits`` is a tuple in {0..6} whose length is the resolution.
 The first nonzero digit cannot be 1 (pentagon-deleted direction).
 
-The center is computed in pentagon-Eisenstein (a 6-fold-symmetric abstract
-2D lattice centered at the base pentagon, with digit 1's direction declared
-forbidden). The angular sector of the final Eisenstein position determines
-which icosa face the point lives on; embedding into that face's 2D frame
-and gnomonic-forward-projecting gives the sphere position.
+Pipeline (same for pentagon and hex cells, centers and boundary corners):
 
-Boundary corners are computed the same way, per-corner: each of the 6 (hex)
-corners is placed in pentagon-Eisenstein at a hex-vertex offset from the
-center, then independently dispatched through its own sector/face.
-Pentagon-center cells (all-zero digits) use a separate direct 3D construction
-since their 5-fold-symmetric vertex structure doesn't match the hex-vertex
-formula.
+1. Accumulate the Eisenstein position ``z`` from the digit sequence.
+2. If ``arg(z) ∈ [180°, 240°)`` — the "deleted" wedge — rotate by +60°.
+   This folds the lattice's fictitious d=1 sector onto d=5's real wedge.
+3. Classify the post-stitch angle into one of five 60° wedges, each owned
+   by one icosa face-digit (d=2, 3, 5, 4, 6).
+4. Apply that face's similarity map (a complex scale+rotation pinned by
+   the two non-pentagon corners of the face) to get face-2D coordinates.
+5. Gnomonic-forward from the face's center to the unit sphere.
+
+Pentagon-center cells fall out of the same pipeline: corner k=3 sits at
+Eisenstein angle 210°, gets rotated +60° to 270°, and coincides with corner
+k=4 — so the 6-corner hex formula naturally produces a 5-gon.
 """
 
 from __future__ import annotations
 
 import cmath
 import math
+from functools import lru_cache
 from typing import Sequence
 
 import numpy as np
 
 from . import icosahedron
-from .face_lattice import (
-    get_rot,
-    h3_digit_offset,
-    omega,
-    pentagon_skipped_digit,
-    r_face,
-    s3,
-    units,
-)
-from .projection import Gnomonic
+from .face_lattice import get_rot, h3_digit_offset, s3, units
 
-# +60° rotation in the pentagon-Eisenstein plane (used to stitch the deleted
-# d=1 wedge onto d=5's natural wedge).
+# +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
 _ROT60 = cmath.exp(1j * math.pi / 3)
+
+# Deleted wedge in Eisenstein (triangle convention): [180°, 240°). Points here
+# get rotated +60° into d=5's (post-stitch) wedge [240°, 300°).
+_DELETED_LO = 180.0
+_DELETED_HI = 240.0
+
+# CCW digit cycle, matching icosahedron.pentagon_face_table's assignment.
+_CCW_CYCLE = (2, 3, 5, 4, 6)
+
+# For each face-digit d, which digit-ray sits at the CCW (upper) boundary of
+# d's Eisenstein wedge. (This is the digit whose neighbor vertex is shared
+# between f_d and its CCW-next face in the fan around V[p].)
+_UPPER_DIGIT = {2: 6, 3: 2, 5: 3, 4: 5, 6: 4}
+
+# For each face-digit d, the two digit-rays bordering d's (post-stitch)
+# Eisenstein wedge and the wedge's angular endpoints:
+#   (cw_ray_digit, ccw_ray_digit, theta_cw_deg, theta_ccw_deg)
+# d=4 is the stretched face; after stitching its wedge is [240°, 300°) and
+# its CW ray at 240° stands in for the d=3 ray (that's where the stitched
+# half of the wedge came from).
+_WEDGE_ENDPOINTS = {
+    2: (4, 6, 0.0,   60.0),
+    3: (6, 2, 60.0,  120.0),
+    5: (2, 3, 120.0, 180.0),
+    4: (3, 5, 240.0, 300.0),
+    6: (5, 4, 300.0, 360.0),
+}
+
+
+def _angle_deg(z: complex) -> float:
+    return math.degrees(math.atan2(z.imag, z.real)) % 360.0
+
+
+def _stitch(z: complex) -> complex:
+    """If z sits in the deleted wedge, rotate it +60° onto d=5's wedge."""
+    if z == 0j:
+        return z
+    if _DELETED_LO <= _angle_deg(z) < _DELETED_HI:
+        return z * _ROT60
+    return z
+
+
+def _classify_stitched(z: complex) -> int:
+    """Face-digit d whose Eisenstein wedge contains a POST-STITCH point z."""
+    a = _angle_deg(z)
+    if a < 60.0:
+        return 2
+    if a < 120.0:
+        return 3
+    if a < 180.0:
+        return 5
+    if a < 300.0:
+        return 4  # only reachable post-stitch (the original [180, 240) is gone)
+    return 6
+
+
+def _neighbor_vertex_of_digit(p: int, d: int) -> int:
+    """Icosa vertex index that pentagon p's d-ray points to.
+
+    Derived from the shared-non-p vertex between f_{d_curr} and its CCW-next
+    face, where d_curr is the digit whose face has d at its upper boundary.
+    """
+    F = icosahedron.faces()
+    pft = icosahedron.pentagon_face_table()
+    for i, d_curr in enumerate(_CCW_CYCLE):
+        if _UPPER_DIGIT[d_curr] != d:
+            continue
+        d_next = _CCW_CYCLE[(i + 1) % 5]
+        f_curr = int(pft[p, d_curr - 2])
+        f_next = int(pft[p, d_next - 2])
+        shared = (set(int(x) for x in F[f_curr]) & set(int(x) for x in F[f_next])) - {p}
+        assert len(shared) == 1
+        return shared.pop()
+    raise ValueError(f"no face has upper-boundary digit {d}")
+
+
+def _face_corner_2d(face: int, vertex: int) -> complex:
+    """Position of icosa-vertex ``vertex`` in ``face``'s face-2D frame."""
+    V = icosahedron.vertices()
+    frames = icosahedron.face_frames()
+    center, u, v = frames[face]
+    p3 = V[vertex]
+    q = p3 / np.dot(p3, center)
+    return complex(np.dot(q, u), np.dot(q, v))
+
+
+@lru_cache(maxsize=None)
+def _similarity_maps(p: int) -> dict[int, tuple[complex, complex]]:
+    """Per-pentagon similarity maps. Returns {face_digit d: (vb, A)} such that
+    a POST-STITCH Eisenstein point z in face d's wedge maps to face-2D as
+    ``vb + A * z``. A is a pure complex scale+rotation — the stretched face
+    d=4 becomes a normal 60° wedge after stitching.
+    """
+    pft = icosahedron.pentagon_face_table()
+    out: dict[int, tuple[complex, complex]] = {}
+    for d, (d_cw, d_ccw, theta_a_deg, theta_b_deg) in _WEDGE_ENDPOINTS.items():
+        face = int(pft[p, d - 2])
+        vb = _face_corner_2d(face, p)
+        n_cw = _neighbor_vertex_of_digit(p, d_cw)
+        n_ccw = _neighbor_vertex_of_digit(p, d_ccw)
+        v_a = _face_corner_2d(face, n_cw)
+        v_b = _face_corner_2d(face, n_ccw)
+        e_a = cmath.exp(1j * math.radians(theta_a_deg))
+        e_b = cmath.exp(1j * math.radians(theta_b_deg))
+        A = (v_a - vb) / e_a
+        assert abs(A * e_b - (v_b - vb)) < 1e-9, (
+            f"wedge d={d} at p={p} is not a pure similarity"
+        )
+        out[d] = (vb, A)
+    return out
+
+
+def _project(z: complex, base: int) -> np.ndarray:
+    """Eisenstein point → stitch → per-face similarity → sphere (unit 3-vec)."""
+    if z == 0j:
+        return icosahedron.vertices()[base].copy()
+    z_s = _stitch(z)
+    d = _classify_stitched(z_s)
+    vb, A = _similarity_maps(base)[d]
+    xy = vb + A * z_s
+    face = int(icosahedron.pentagon_face_table()[base, d - 2])
+    center, u_ax, v_ax = icosahedron.face_frames()[face]
+    p3 = center + xy.real * u_ax + xy.imag * v_ax
+    return p3 / np.linalg.norm(p3)
 
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:
@@ -53,57 +170,9 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     return z
 
 
-def _face_digit_and_z(z_lattice: complex, z: complex) -> tuple[int, complex]:
-    """Classify a lattice position into a projecting face digit.
-
-    The icosahedron vertex has 5 incident faces but the Eisenstein lattice
-    has 6 wedges, one of which (centered on the d=1 ray at 240°) is the
-    deleted direction. That whole deleted wedge [210°, 270°) is absorbed
-    into d=5 as a unit: any point inside it is rotated by +60°, which
-    lands it in d=5's natural wedge [270°, 330°). No midline split.
-
-    Classification is done in lattice-space (unrotated) to be invariant to
-    aperture-7 resolution twists. Wedges are axis-centered on the digit rays.
-    """
-    angle = math.degrees(math.atan2(z_lattice.imag, z_lattice.real)) % 360.0
-
-    if angle < 30.0 or angle >= 330.0:
-        return 4, z  # d=4 wedge, centered on 0°
-    elif angle < 90.0:
-        return 6, z  # d=6 wedge, centered on 60°
-    elif angle < 150.0:
-        return 2, z  # d=2 wedge, centered on 120°
-    elif angle < 210.0:
-        return 3, z  # d=3 wedge, centered on 180°
-    elif angle < 270.0:
-        return 5, z * _ROT60  # deleted wedge absorbed into d=5 via +60°
-    else:
-        return 5, z  # d=5 wedge, centered on 300°
-
-
-def _project_through_face(z: complex, base: int, res: int) -> np.ndarray:
-    """Dispatch a pentagon-Eisenstein point ``z`` through its angular sector's
-    face and gnomonic-forward to the sphere.
-    """
-    z_lattice = z * get_rot(res)
-    d, z_use = _face_digit_and_z(z_lattice, z)
-    pft = icosahedron.pentagon_face_table()
-    face = int(pft[base, d - 2])
-    vb = icosahedron.v_base_face2d(base, face)
-    A = icosahedron.pentagon_embed_factors()[base, d - 2]
-    xy = vb + A * z_use
-
-    frame = icosahedron.face_frames()[face]
-    gn = Gnomonic(center=frame[0], up=frame[1])
-    return gn.forward(np.array([xy.real, xy.imag]))
-
-
 def cell_center(base: int, digits: Sequence[int]) -> np.ndarray:
-    """Unit 3-vector on the sphere for the cell ``(base, digits)``."""
-    z = _eisenstein_center(digits)
-    if z == 0:
-        return icosahedron.vertices()[base].copy()
-    return _project_through_face(z, base, res=len(digits))
+    """Unit 3-vector on the sphere for cell ``(base, digits)``."""
+    return _project(_eisenstein_center(digits), base)
 
 
 def cell_boundary(
@@ -111,51 +180,26 @@ def cell_boundary(
 ) -> np.ndarray:
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
-    Returns 6 vertices for hex cells, 5 for pentagon cells (all-zero digits).
-    Each vertex is projected through its own angular sector's face, so cells
-    straddling face boundaries have vertices on different faces.
+    Hex cells return 6 vertices; pentagon-center cells (all-zero digits,
+    including res 0) return 5 — stitching collapses corners k=3 and k=4
+    onto the same point. If ``closed``, the first vertex is repeated.
     """
     z = _eisenstein_center(digits)
-    N = len(digits)
+    res = len(digits)
+    rot_N = get_rot(res)
 
-    if z == 0:
-        return _pentagon_center_boundary(base, N, closed)
-
-    corners = []
+    seen: set[tuple] = set()
+    pts: list[np.ndarray] = []
     for k in range(6):
-        corner_offset = units[k] / (get_rot(N) * s3)
-        vertex_z = z + corner_offset
-        corners.append(_project_through_face(vertex_z, base, res=N))
+        corner_z = z + units[k] / (s3 * rot_N)
+        p3 = _project(corner_z, base)
+        key = tuple(np.round(p3, 12))
+        if key in seen:
+            continue
+        seen.add(key)
+        pts.append(p3)
 
-    out = np.stack(corners, axis=0)
-    if closed:
-        out = np.vstack([out, out[0:1]])
-    return out
-
-
-def _pentagon_center_boundary(base: int, N: int, closed: bool) -> np.ndarray:
-    """Boundary of a pentagon-center cell (all-zero digit path) at res N.
-
-    The 5 vertices are at the pentagon's 5 incident face centers, each
-    shrunk toward ``V[base]`` by a factor ``1/sqrt(7)^N`` in the pentagon's
-    tangent plane (gnomonic-from-V[base]).
-    """
-    V = icosahedron.vertices()
-    v = V[base]
-    centers = icosahedron.face_centers()
-    pft = icosahedron.pentagon_face_table()[base]
-
-    gn = Gnomonic(center=v)
-    scale = 1.0 / (math.sqrt(7) ** N)
-
-    ccw_digit_order = (2, 3, 5, 4, 6)
-    result = []
-    for d in ccw_digit_order:
-        f = int(pft[d - 2])
-        xy_cf = gn.inverse(centers[f])
-        result.append(gn.forward(xy_cf * scale))
-
-    out = np.stack(result, axis=0)
+    out = np.stack(pts, axis=0)
     if closed:
         out = np.vstack([out, out[0:1]])
     return out
