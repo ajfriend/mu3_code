@@ -35,7 +35,8 @@ from typing import Iterator, Sequence
 import numpy as np
 
 from . import icosahedron
-from .face_lattice import get_rot, h3_digit_offset, s3, units
+from .face_lattice import get_rot, h3_digit_offset, r_face, s3, units
+from .projection import AlphaSlerp
 
 # +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
 _ROT60 = cmath.exp(1j * math.pi / 3)
@@ -151,8 +152,39 @@ def _similarity_maps(p: int) -> dict[int, tuple[complex, complex]]:
     return out
 
 
+@lru_cache(maxsize=None)
+def _alpha_slerp_for_face(face: int) -> AlphaSlerp:
+    """Per-face AlphaSlerp projector, instantiated with the face's three
+    icosa-vertex unit 3-vectors in CCW order (as given by the face table)."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    v0, v1, v2 = V[F[face, 0]], V[F[face, 1]], V[F[face, 2]]
+    return AlphaSlerp(v0, v1, v2)
+
+
+_SQRT3 = math.sqrt(3.0)
+
+
+def _face_2d_to_barycentric(xy: complex, face: int) -> np.ndarray:
+    """Barycentric coordinates on the face triangle for a face-2D point.
+
+    In each face's face-2D frame the three corners sit at magnitude
+    ``r_face`` at angles 0°, 120°, 240° (face_i_vertex at 0°, the other
+    two at ±120°). That gives an explicit closed-form inverse, no linear
+    solve needed. The output order matches face corner order
+    ``(F[face, 0], F[face, 1], F[face, 2])``.
+    """
+    x, y = xy.real, xy.imag
+    b0 = (2.0 * x / r_face + 1.0) / 3.0
+    rest = (1.0 - b0) / 2.0
+    off = y / (r_face * _SQRT3)
+    b1 = rest + off
+    b2 = rest - off
+    return np.array([b0, b1, b2])
+
+
 def _project(z: complex, base: int) -> np.ndarray:
-    """Eisenstein point → stitch → per-face similarity → sphere (unit 3-vec)."""
+    """Eisenstein → stitch → per-face similarity → barycentric → α-slerp → sphere."""
     if z == 0j:
         return icosahedron.vertices()[base].copy()
     z_s = _stitch(z)
@@ -160,9 +192,8 @@ def _project(z: complex, base: int) -> np.ndarray:
     vb, A = _similarity_maps(base)[d]
     xy = vb + A * z_s
     face = int(icosahedron.pentagon_face_table()[base, d - 2])
-    center, u_ax, v_ax = icosahedron.face_frames()[face]
-    p3 = center + xy.real * u_ax + xy.imag * v_ax
-    return p3 / np.linalg.norm(p3)
+    beta = _face_2d_to_barycentric(xy, face)
+    return _alpha_slerp_for_face(face).forward_barycentric(beta)
 
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:
