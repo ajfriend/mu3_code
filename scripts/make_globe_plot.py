@@ -1,6 +1,8 @@
-"""Build a self-contained HTML page with 3 rotatable d3 globes showing
-mu3's resolution 0, 1, and 2 cells, with the icosahedron edges overlaid
-for reference."""
+"""Self-contained HTML page with 4 rotatable d3 globes showing mu3's res 0-3
+cells on the sphere, with the icosahedron edges overlaid for reference.
+
+Cells come straight from the library: ``mu3.cell_boundary(base, digits)``.
+"""
 
 from __future__ import annotations
 
@@ -26,11 +28,6 @@ def enumerate_cells(r: int):
             yield (base, ())
             continue
         for digits in itertools.product(range(7), repeat=r):
-            # We don't skip digit-1 descendants anymore here; 
-            # cell_boundary now handles the folding of those areas.
-            # However, for pure DGGS indexing, digit-1 centers are usually 
-            # forbidden. Let's see if including them makes a better plot.
-            # If we want a valid tiling, we still skip the centers.
             first_nonzero = next((d for d in digits if d != 0), None)
             if first_nonzero == 1:
                 continue
@@ -55,7 +52,7 @@ def icosahedron_edges() -> list[list[list[float]]]:
 
 def main() -> None:
     cells_by_res: dict[str, list] = {}
-    for r in (0, 1, 2):
+    for r in (0, 1, 2, 3):
         polys = []
         for base, digits in enumerate_cells(r):
             polys.append([cell_ring(base, digits)])
@@ -81,7 +78,7 @@ def main() -> None:
   body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 20px; color: #222; background: #fff; }
   h1 { font-weight: 400; margin-bottom: 4px; }
   .sub { color: #555; font-size: 13px; margin-bottom: 20px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1400px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; max-width: 1200px; }
   .panel { border: 1px solid #ddd; padding: 12px; border-radius: 4px; }
   .panel h2 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #334; }
   .panel .count { color: #888; font-size: 12px; margin: 0 0 6px 0; }
@@ -98,6 +95,7 @@ def main() -> None:
   <div class="panel"><h2>Resolution 0</h2><div class="count" id="c-0"></div><div id="g-0" class="globe"></div></div>
   <div class="panel"><h2>Resolution 1</h2><div class="count" id="c-1"></div><div id="g-1" class="globe"></div></div>
   <div class="panel"><h2>Resolution 2</h2><div class="count" id="c-2"></div><div id="g-2" class="globe"></div></div>
+  <div class="panel"><h2>Resolution 3</h2><div class="count" id="c-3"></div><div id="g-3" class="globe"></div></div>
 </div>
 
 <script type="module">
@@ -120,10 +118,7 @@ def main() -> None:
 
   const icosaFeature = {
     type: 'Feature',
-    geometry: {
-      type: 'MultiLineString',
-      coordinates: DATA.icosahedron_edges
-    }
+    geometry: { type: 'MultiLineString', coordinates: DATA.icosahedron_edges }
   };
 
   const sharedRotate = [20, -30, 0];
@@ -132,19 +127,13 @@ def main() -> None:
 
   function setupGlobe(res, containerId) {
     const container = document.getElementById(containerId);
-    
-    // GeoJSON MultiPolygon for the grid
+
     const gridFeature = {
       type: 'Feature',
-      geometry: {
-        type: 'MultiPolygon',
-        coordinates: DATA.cells_by_res[res]
-      }
+      geometry: { type: 'MultiPolygon', coordinates: DATA.cells_by_res[res] }
     };
 
-    function getSize() {
-      return container.offsetWidth || 400;
-    }
+    function getSize() { return container.offsetWidth || 400; }
 
     function render() {
       const size = getSize();
@@ -165,10 +154,7 @@ def main() -> None:
       container.appendChild(plot);
 
       const drag = d3.drag()
-        .on('start', (e) => {
-          drag.sx = e.x; drag.sy = e.y;
-          drag.sr = sharedRotate.slice();
-        })
+        .on('start', (e) => { drag.sx = e.x; drag.sy = e.y; drag.sr = sharedRotate.slice(); })
         .on('drag', (e) => {
           const dx = e.x - drag.sx, dy = e.y - drag.sy, k = 0.25;
           sharedRotate[0] = drag.sr[0] + dx * k;
@@ -178,9 +164,7 @@ def main() -> None:
         });
       d3.select(plot).call(drag);
       d3.select(plot).on('dblclick', () => {
-        sharedRotate[0] = 20;
-        sharedRotate[1] = -30;
-        sharedRotate[2] = 0;
+        sharedRotate[0] = 20; sharedRotate[1] = -30; sharedRotate[2] = 0;
         renderAllGlobes();
       });
     }
@@ -193,6 +177,7 @@ def main() -> None:
   setupGlobe('0', 'g-0');
   setupGlobe('1', 'g-1');
   setupGlobe('2', 'g-2');
+  setupGlobe('3', 'g-3');
 </script>
 </body>
 </html>
