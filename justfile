@@ -14,6 +14,11 @@ reinstall:
 lab: reinstall
     uv run jupyter lab
 
+[group('extra')]
+globe: reinstall
+    uv run scripts/make_globe_plot.py
+    open figures/mu3_globe.html
+
 clean:
     just _rm __pycache__
     just _rm '*.pytest_cache'
