@@ -104,6 +104,18 @@ def test_full_coverage(res):
 
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
+def test_all_cells_ccw(res):
+    """Every cell's boundary is CCW when viewed from outside the sphere
+    (GeoJSON / right-hand convention). Signed spherical area is positive."""
+    for cell in cells_at_res(res):
+        V = _unique_corners(cell)
+        area = _spherical_polygon_area(V)
+        assert area > 0, (
+            f"res={res}, cell={cell}: signed area {area:.3e} (CW, not CCW)"
+        )
+
+
+@pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_euler_formula(res):
     """V - E + F = 2 (sphere Euler characteristic)."""
     verts: set = set()
