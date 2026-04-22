@@ -1,8 +1,12 @@
 """Forward indexing: cell index -> sphere center and boundary.
 
-A cell index is ``(base, digits)`` where ``base`` is an icosa vertex index
-(0..11) and ``digits`` is a tuple in {0..6} whose length is the resolution.
-The first nonzero digit cannot be 1 (pentagon-deleted direction).
+A cell is a tuple ``(base, d_1, d_2, ..., d_N)`` where:
+  - ``base`` is an icosa vertex index (0..11)
+  - ``d_1..d_N`` are child digits in {0..6}
+  - ``N`` = ``len(cell) - 1`` = the cell's resolution
+
+At res 0 a cell is a 1-tuple ``(base,)``. The first nonzero child digit
+cannot be 1 (pentagon-deleted direction).
 
 Pipeline (same for pentagon and hex cells, centers and boundary corners):
 
@@ -161,7 +165,7 @@ def _project(z: complex, base: int) -> np.ndarray:
 
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:
-    """Pentagon-Eisenstein position ``z`` for the given digit sequence."""
+    """Pentagon-Eisenstein position ``z`` for a child-digit sequence."""
     z = 0j
     for k, d in enumerate(digits, start=1):
         if d == 0:
@@ -170,23 +174,23 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     return z
 
 
-def cell_center(base: int, digits: Sequence[int]) -> np.ndarray:
-    """Unit 3-vector on the sphere for cell ``(base, digits)``."""
+def cell_center(cell: Sequence[int]) -> np.ndarray:
+    """Unit 3-vector on the sphere for ``cell = (base, d_1, ..., d_N)``."""
+    base, digits = cell[0], cell[1:]
     return _project(_eisenstein_center(digits), base)
 
 
-def cell_boundary(
-    base: int, digits: Sequence[int], closed: bool = True
-) -> np.ndarray:
+def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
-    Hex cells return 6 vertices; pentagon-center cells (all-zero digits,
-    including res 0) return 5 — stitching collapses corners k=3 and k=4
-    onto the same point. If ``closed``, the first vertex is repeated.
+    Hex cells return 6 vertices; pentagon-center cells (all-zero child
+    digits, including the res-0 cell ``(base,)``) return 5 — stitching
+    collapses corners k=3 and k=4 onto the same point. If ``closed``, the
+    first vertex is repeated.
     """
+    base, digits = cell[0], cell[1:]
     z = _eisenstein_center(digits)
-    res = len(digits)
-    rot_N = get_rot(res)
+    rot_N = get_rot(len(digits))
 
     seen: set[tuple] = set()
     pts: list[np.ndarray] = []

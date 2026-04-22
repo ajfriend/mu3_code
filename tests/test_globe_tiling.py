@@ -27,9 +27,9 @@ from mu3 import cell_boundary
 ROUND = 10
 
 
-def _unique_corners(base: int, digits: tuple) -> list[np.ndarray]:
+def _unique_corners(cell: tuple) -> list[np.ndarray]:
     """3D unit vectors at the cell corners, deduped (pentagon ↦ 5, hex ↦ 6)."""
-    bnd = cell_boundary(base, digits, closed=False)
+    bnd = cell_boundary(cell, closed=False)
     seen: set[tuple] = set()
     out: list[np.ndarray] = []
     for v in bnd:
@@ -42,16 +42,16 @@ def _unique_corners(base: int, digits: tuple) -> list[np.ndarray]:
 
 
 def _enumerate_cells(res: int):
-    """(base, digits) for every valid mu3 cell at resolution res."""
+    """Every valid mu3 cell (as a flat tuple) at resolution res."""
     for p in range(12):
         if res == 0:
-            yield (p, ())
+            yield (p,)
             continue
         for digits in itertools.product(range(7), repeat=res):
             first_nz = next((d for d in digits if d != 0), None)
             if first_nz == 1:
                 continue
-            yield (p, digits)
+            yield (p, *digits)
 
 
 def _spherical_polygon_area(V: list[np.ndarray]) -> float:
@@ -74,8 +74,8 @@ def _spherical_polygon_area(V: list[np.ndarray]) -> float:
 def test_vertex_incidence(res):
     """Every unique 3D corner is shared by exactly 3 cells."""
     all_verts: list[tuple] = []
-    for p, digits in _enumerate_cells(res):
-        for v in _unique_corners(p, digits):
+    for cell in _enumerate_cells(res):
+        for v in _unique_corners(cell):
             all_verts.append(tuple(np.round(v, ROUND)))
     counts = Counter(all_verts)
     wrong = [(v, c) for v, c in counts.items() if c != 3]
@@ -89,8 +89,8 @@ def test_vertex_incidence(res):
 def test_edge_sharing(res):
     """Every undirected edge appears in exactly 2 cells."""
     edges: list[tuple] = []
-    for p, digits in _enumerate_cells(res):
-        V = _unique_corners(p, digits)
+    for cell in _enumerate_cells(res):
+        V = _unique_corners(cell)
         n = len(V)
         for i in range(n):
             a = tuple(np.round(V[i], ROUND))
@@ -108,8 +108,8 @@ def test_edge_sharing(res):
 def test_full_coverage(res):
     """Sum of all cell areas equals 4π (no gaps, no overlaps)."""
     total = 0.0
-    for p, digits in _enumerate_cells(res):
-        V = _unique_corners(p, digits)
+    for cell in _enumerate_cells(res):
+        V = _unique_corners(cell)
         total += _spherical_polygon_area(V)
     assert abs(total - 4.0 * np.pi) < 1e-9, (
         f"res={res}: summed area = {total:.12f}, expected 4π = {4*np.pi:.12f}, "
@@ -123,8 +123,8 @@ def test_euler_formula(res):
     verts: set = set()
     edges: set = set()
     F = 0
-    for p, digits in _enumerate_cells(res):
-        V = _unique_corners(p, digits)
+    for cell in _enumerate_cells(res):
+        V = _unique_corners(cell)
         F += 1
         for i, v in enumerate(V):
             verts.add(tuple(np.round(v, ROUND)))

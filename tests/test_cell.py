@@ -12,7 +12,7 @@ from mu3 import cell_boundary, cell_center, icosahedron
 def test_empty_digits_returns_vertex():
     V = icosahedron.vertices()
     for b in range(12):
-        got = cell_center(b, ())
+        got = cell_center((b,))
         assert np.allclose(got, V[b])
 
 
@@ -20,19 +20,19 @@ def test_all_zero_digits_returns_vertex():
     V = icosahedron.vertices()
     for b in range(12):
         for N in (1, 2, 5, 10):
-            got = cell_center(b, (0,) * N)
+            got = cell_center((b, *(0,) * N))
             assert np.allclose(got, V[b])
 
 
-# ---------- sanity: first-digit lands on the expected face ----------
+# ---------- sanity: first-digit cell belongs to its base pentagon ----------
 
 
 def test_res1_digit_center_closest_to_own_pentagon():
-    """cell_center(b, (d,)) belongs to pentagon b — its nearest icosa vertex is V[b]."""
+    """cell_center((b, d)) belongs to pentagon b — its nearest icosa vertex is V[b]."""
     V = icosahedron.vertices()
     for b in range(12):
         for d in (2, 3, 4, 5, 6):
-            c = cell_center(b, (d,))
+            c = cell_center((b, d))
             assert abs(np.linalg.norm(c) - 1.0) < 1e-10
             nearest = int(np.argmax(V @ c))
             assert nearest == b, (
@@ -52,7 +52,7 @@ def test_res1_hex_child_distance_from_vbase():
     V = icosahedron.vertices()
     for b in range(12):
         for d in (2, 3, 4, 5, 6):
-            p = cell_center(b, (d,))
+            p = cell_center((b, d))
             dist_deg = math.degrees(math.acos(float(np.clip(p @ V[b], -1.0, 1.0))))
             assert 15 < dist_deg < 35, f"b={b}, d={d}: dist={dist_deg}°"
 
@@ -61,11 +61,11 @@ def test_res1_hex_child_distance_from_vbase():
 
 
 def test_res0_pentagon_boundary_is_incident_face_centers():
-    """cell_boundary(b, ()) must be exactly the 5 incident face centers."""
+    """cell_boundary((b,)) must be exactly the 5 incident face centers."""
     F = icosahedron.faces()
     centers = icosahedron.face_centers()
     for b in range(12):
-        bnd = cell_boundary(b, (), closed=False)
+        bnd = cell_boundary((b,), closed=False)
         assert bnd.shape == (5, 3)
         # Every boundary vertex is some face center incident to b.
         for v in bnd:
@@ -77,7 +77,7 @@ def test_res0_pentagon_boundary_is_incident_face_centers():
 
 def test_res0_pentagon_boundary_closed():
     b = 0
-    bnd = cell_boundary(b, (), closed=True)
+    bnd = cell_boundary((b,), closed=True)
     assert bnd.shape == (6, 3)
     assert np.allclose(bnd[0], bnd[-1])
 
@@ -88,7 +88,7 @@ def test_res0_pentagon_boundary_closed():
 def test_res1_hex_boundary_shape_and_unit_norm():
     for b in range(12):
         for d in (2, 3, 4, 5, 6):
-            bnd = cell_boundary(b, (d,), closed=False)
+            bnd = cell_boundary((b, d), closed=False)
             assert bnd.shape == (6, 3)
             norms = np.linalg.norm(bnd, axis=1)
             assert np.allclose(norms, 1.0, atol=1e-10)
@@ -98,7 +98,7 @@ def test_res1_hex_boundary_roughly_equilateral():
     """Res-1 hex on the sphere shouldn't be wildly distorted."""
     for b in range(12):
         for d in (2, 3, 4, 5, 6):
-            bnd = cell_boundary(b, (d,), closed=False)
+            bnd = cell_boundary((b, d), closed=False)
             # Consecutive-vertex distances should be roughly equal.
             edges = np.linalg.norm(np.roll(bnd, -1, axis=0) - bnd, axis=1)
             ratio = edges.max() / edges.min()
@@ -121,12 +121,12 @@ def test_deep_resolution_unit_norm():
             else:
                 choices = (0, 1, 2, 3, 4, 5, 6)
             digits.append(int(choices[int(rng.integers(len(choices)))]))
-        digits = tuple(digits)
+        cell = (b, *digits)
 
-        c = cell_center(b, digits)
+        c = cell_center(cell)
         assert abs(np.linalg.norm(c) - 1.0) < 1e-10
 
-        bnd = cell_boundary(b, digits, closed=False)
+        bnd = cell_boundary(cell, closed=False)
         if all(x == 0 for x in digits):
             assert bnd.shape == (5, 3)
         else:
@@ -147,7 +147,7 @@ def test_pentagon_center_at_depth_shrinks():
     V = icosahedron.vertices()[b]
     radii = []
     for N in range(1, 6):
-        bnd = cell_boundary(b, (0,) * N, closed=False)
+        bnd = cell_boundary((b, *(0,) * N), closed=False)
         assert bnd.shape == (5, 3)
         dists = np.arccos(np.clip(bnd @ V, -1.0, 1.0))
         radii.append(dists.mean())

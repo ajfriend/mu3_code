@@ -1,7 +1,8 @@
 """Self-contained HTML page with 4 rotatable d3 globes showing mu3's res 0-3
 cells on the sphere, with the icosahedron edges overlaid for reference.
 
-Cells come straight from the library: ``mu3.cell_boundary(base, digits)``.
+Cells come straight from the library: ``mu3.cell_boundary(cell)`` where
+``cell = (base, d_1, ..., d_N)``.
 """
 
 from __future__ import annotations
@@ -25,17 +26,17 @@ def unit_to_lnglat(v: np.ndarray) -> list[float]:
 def enumerate_cells(r: int):
     for base in range(12):
         if r == 0:
-            yield (base, ())
+            yield (base,)
             continue
         for digits in itertools.product(range(7), repeat=r):
             first_nonzero = next((d for d in digits if d != 0), None)
             if first_nonzero == 1:
                 continue
-            yield (base, digits)
+            yield (base, *digits)
 
 
-def cell_ring(base: int, digits: tuple) -> list[list[float]]:
-    bnd = cell_boundary(base, digits, closed=True)
+def cell_ring(cell: tuple) -> list[list[float]]:
+    bnd = cell_boundary(cell, closed=True)
     return [unit_to_lnglat(v) for v in bnd]
 
 
@@ -54,8 +55,8 @@ def main() -> None:
     cells_by_res: dict[str, list] = {}
     for r in (0, 1, 2, 3):
         polys = []
-        for base, digits in enumerate_cells(r):
-            polys.append([cell_ring(base, digits)])
+        for cell in enumerate_cells(r):
+            polys.append([cell_ring(cell)])
         cells_by_res[str(r)] = polys
         print(f"res {r}: {len(polys)} cells")
 
