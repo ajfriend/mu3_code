@@ -15,7 +15,21 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon, Wedge
 
-from mu3.face_lattice import get_rot, h3_digit_offset, omega, s3, units
+from mu3.face_lattice import get_rot, omega, s3, units
+
+# New mu3 digit convention (preview; face_lattice.py still uses H3 numbering).
+# Digits 1-6 go strictly CCW around the hex, with d=1 immediately CCW of the
+# primary direction (which lies on the boundary between d=6 at 0° and d=1 at 60°).
+# d=1 is the deleted direction. Pentagon surviving cycle: (2, 3, 4, 5, 6).
+h3_digit_offset: dict[int, complex] = {
+    0: 0,
+    1: 1 + omega,    # 60°  (DELETED in pentagons)
+    2: omega,        # 120°
+    3: -1,           # 180°
+    4: -1 - omega,   # 240°
+    5: -omega,       # 300°
+    6: 1,            # 0°
+}
 
 
 def hex_corners(center: complex, rot: complex) -> list[complex]:
@@ -31,7 +45,7 @@ def triangles_around_pentagon() -> list[tuple[int, tuple[complex, complex, compl
     return [(j, (0 + 0j, units[j], units[(j + 1) % 6])) for j in range(6)]
 
 
-DELETED_TRIANGLE_J = 3  # whole-triangle deletion: j=3 spans 180°→240°
+DELETED_TRIANGLE_J = 0  # whole-triangle deletion: j=0 spans 0°→60°
 
 
 def first_nonzero_digit(digits: tuple[int, ...]) -> int | None:
@@ -97,8 +111,9 @@ def plot_res(ax: plt.Axes, res: int, view_radius: float) -> None:
 
     # wedge labels at each triangle centroid. Wedge j (between units[j] and
     # units[j+1]) is labeled by the digit at its CCW boundary (at angle 60°·(j+1)).
-    # With j=3 deleted, that slot is digit 1 (boundary at 240°).
-    wedge_digit = {0: 6, 1: 2, 2: 3, 3: 1, 4: 5, 5: 4}
+    # With j=0 deleted, that slot is digit 1 (boundary at 60°). Digits go
+    # strictly CCW around the hex.
+    wedge_digit = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
     for j in range(6):
         centroid = (units[j] + units[(j + 1) % 6]) / 3
         pt = centroid * (1.08 / abs(centroid))  # push just outside unit circle

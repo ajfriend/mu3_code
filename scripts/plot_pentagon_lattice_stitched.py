@@ -27,16 +27,28 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from mu3.face_lattice import get_rot, h3_digit_offset, omega, s3, units
+from mu3.face_lattice import get_rot, omega, s3, units
+
+# New mu3 digit convention (preview; face_lattice.py still uses H3 numbering).
+# Digits 1-6 go strictly CCW around the hex, with d=1 at 60° (immediately CCW
+# of the primary direction at 0°). d=1 is the deleted direction.
+h3_digit_offset: dict[int, complex] = {
+    0: 0,
+    1: 1 + omega,    # 60°  (DELETED in pentagons)
+    2: omega,        # 120°
+    3: -1,           # 180°
+    4: -1 - omega,   # 240°
+    5: -omega,       # 300°
+    6: 1,            # 0°
+}
 
 
 ROT60 = cmath.exp(1j * math.pi / 3)
 
-# The deleted triangle, in pentagon-plane (z-space) coordinates: the 60°
-# wedge between units[3] (180°) and units[4] (240°).
-DELETED_LO = 180.0
-DELETED_HI = 240.0
-DELETED_TRIANGLE_J = 3
+# The deleted triangle: 60° wedge between units[0] (0°) and units[1] (60°).
+DELETED_LO = 0.0
+DELETED_HI = 60.0
+DELETED_TRIANGLE_J = 0
 
 
 def _angle_deg(z: complex) -> float:
@@ -44,7 +56,7 @@ def _angle_deg(z: complex) -> float:
 
 
 def stitch(z: complex) -> complex:
-    """If z sits in the deleted triangle, rotate it +60° into d=5's wedge."""
+    """If z sits in the deleted triangle, rotate it +60° into d=2's wedge."""
     if z == 0j:
         return z
     if DELETED_LO <= _angle_deg(z) < DELETED_HI:
@@ -121,7 +133,7 @@ def plot_res(ax: plt.Axes, res: int, view_radius: float) -> None:
             ax.plot(z_mark.real, z_mark.imag, ".", color=color,
                     markersize=2.0, zorder=3 if was_straddler else 2)
 
-    wedge_digit = {0: 6, 1: 2, 2: 3, 3: 1, 4: 5, 5: 4}
+    wedge_digit = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
     for j in range(6):
         centroid = (units[j] + units[(j + 1) % 6]) / 3
         pt = centroid * (1.08 / abs(centroid))
