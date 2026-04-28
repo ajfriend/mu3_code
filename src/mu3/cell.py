@@ -333,3 +333,35 @@ def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     if closed:
         out = np.vstack([out, out[0:1]])
     return out
+
+
+def _polish_boundary(q: np.ndarray, V: np.ndarray) -> int | None:
+    """Spherical point-in-polygon against a precomputed boundary.
+
+    ``V`` is an ``(n, 3)`` CCW ring of unit 3-vectors (viewed from outside
+    the sphere). Returns ``None`` if ``q`` is inside, else the index ``k``
+    of the boundary edge ``q`` is farthest outside of (the edge from
+    ``V[k]`` to ``V[(k+1) % n]``).
+
+    ``V[k] × V[k+1]`` points into the polygon interior by the CCW
+    convention, so a strictly negative dot with ``q`` means ``q`` is
+    outside that edge.
+
+    This is the primitive; callers in tight loops should hoist
+    :func:`cell_boundary` out and call this directly.
+    """
+    n = len(V)
+    worst_dot = 0.0
+    worst_k: int | None = None
+    for k in range(n):
+        edge_normal = np.cross(V[k], V[(k + 1) % n])
+        d = float(edge_normal @ q)
+        if d < worst_dot:
+            worst_dot = d
+            worst_k = k
+    return worst_k
+
+
+def _polish_cell_sphere(q: np.ndarray, cell: Sequence[int]) -> int | None:
+    """Spherical point-in-polygon for a mu3 cell. Wraps :func:`_polish_boundary`."""
+    return _polish_boundary(q, cell_boundary(cell, closed=False))

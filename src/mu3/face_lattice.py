@@ -59,6 +59,41 @@ h3_digit_offset: dict[int, complex] = {
 
 pentagon_skipped_digit = 1
 
+# H3 CCW digit cycle from coordijk.h: a +60° CCW rotation of an Eisenstein
+# offset cycles digits 1 → 5 → 4 → 6 → 2 → 3 → 1.
+_DIGIT_CCW_NEXT = {0: 0, 1: 5, 5: 4, 4: 6, 6: 2, 2: 3, 3: 1}
+
+
+def rotate_digit_ccw(d: int, steps: int = 1) -> int:
+    """Apply ``steps`` CCW 60° rotations to digit ``d``."""
+    steps %= 6
+    for _ in range(steps):
+        d = _DIGIT_CCW_NEXT[d]
+    return d
+
+
+_OFFSET_TO_DIGIT: dict[tuple[int, int], int] = {}
+for _d, _off in h3_digit_offset.items():
+    _b_imag = _off.imag / omega.imag
+    _a_real = _off.real - _b_imag * omega.real
+    _OFFSET_TO_DIGIT[(round(_a_real), round(_b_imag))] = _d
+
+
+def digit_for_offset(z: complex) -> int:
+    """Digit whose ``h3_digit_offset`` equals ``z``; -1 if ``z`` is not one.
+
+    ``z`` must be one of the 7 Eisenstein offsets (within 1e-9). The caller
+    is expected to feed values produced by the divmod-driven neighbor walk,
+    where this is guaranteed by construction.
+    """
+    b = z.imag / omega.imag
+    a = z.real - b * omega.real
+    key = (round(a), round(b))
+    d = _OFFSET_TO_DIGIT.get(key, -1)
+    if d < 0 or abs(z - h3_digit_offset[d]) > 1e-9:
+        return -1
+    return d
+
 s3 = 1 - omega
 s7a = 2 - omega
 s7b = 3 + omega
@@ -107,3 +142,43 @@ def divmod_ei(z: complex, d: complex) -> tuple[complex, complex]:
     q = round_ei(z / d)
     r = z - q * d
     return q, r
+
+
+def _neighbor_step_single(d: int, D: int, parity: int) -> tuple[int, int]:
+    """Bottom-up neighbor-walk transition at one resolution level.
+
+    Given current digit ``d`` and incoming direction ``D`` to add at the
+    same resolution, returns ``(d_new, D_carry)`` — the new digit at this
+    resolution and the direction to add at the parent resolution. ``parity``
+    is the resolution's parity (1 = odd → ratio ``s7b``, 0 = even → ``s7a``),
+    reflecting the Class III / Class II alternation of :func:`get_rot`.
+
+    Derived from the algebraic identity
+    ``offset[d] + offset[D] = offset[d_new] + offset[D_carry] * ratio``,
+    where ``ratio = get_rot(res) / get_rot(res - 1)``. The RHS is obtained
+    by Euclidean division in Z[ω] by ``ratio``.
+    """
+    ratio = s7b if parity == 1 else s7a
+    S = h3_digit_offset[d] + h3_digit_offset[D]
+    if abs(S) < 1e-12:
+        return 0, 0
+    q, r = divmod_ei(S, ratio)
+    D_carry = digit_for_offset(q)
+    d_new = digit_for_offset(r)
+    if D_carry < 0 or d_new < 0:
+        raise RuntimeError(
+            f"neighbor-step transition failed: d={d} D={D} parity={parity} "
+            f"S={S} q={q} r={r}"
+        )
+    return d_new, D_carry
+
+
+# NEIGHBOR_TRANS[parity][d][D] = (d_new, D_carry).
+# Precomputed once at import — 2·7·7 = 98 entries per parity.
+NEIGHBOR_TRANS: tuple[tuple[tuple[tuple[int, int], ...], ...], ...] = tuple(
+    tuple(
+        tuple(_neighbor_step_single(d, D, parity) for D in range(7))
+        for d in range(7)
+    )
+    for parity in range(2)
+)

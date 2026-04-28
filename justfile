@@ -19,6 +19,11 @@ globe: reinstall
     uv run scripts/make_globe_plot.py
     open figures/mu3_globe.html
 
+[group('extra')]
+primary-direction:
+    uv run scripts/make_primary_direction_plot.py
+    open figures/primary_direction.html
+
 clean:
     just _rm __pycache__
     just _rm '*.pytest_cache'
