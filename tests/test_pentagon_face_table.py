@@ -1,6 +1,6 @@
 import numpy as np
 
-from mu3 import icosahedron
+from mu3 import dodec, icosahedron
 
 
 def test_shape_and_dtype():
@@ -26,13 +26,22 @@ def test_each_face_appears_in_3_rows():
     assert np.all(counts == 3)
 
 
-def test_digit_2_is_smallest_index_incident_face():
+def test_digit_face_uses_primary_direction_neighbor():
+    # New rule: pentagon_face_table[p, d - 2] is the icosa face spanning
+    # (p, dodec.neighbors[p][d - 2], dodec.neighbors[p][(d - 1) % 5]) — i.e.,
+    # digit d's face sits between the (d-2)-th and (d-1)-th pentagon corners
+    # CCW from the primary direction.
     t = icosahedron.pentagon_face_table()
     F = icosahedron.faces()
+    triple_to_idx = {
+        tuple(sorted(int(x) for x in F[f])): f for f in range(20)
+    }
     for p in range(12):
-        incident = sorted(f for f in range(20) if p in F[f])
-        # Column for digit 2 is index 0 (since d - 2 == 0 for d == 2).
-        assert t[p, 0] == incident[0]
+        n = dodec.neighbors[p]
+        for d in (2, 3, 4, 5, 6):
+            k = d - 2
+            triple = tuple(sorted((p, n[k], n[(k + 1) % 5])))
+            assert t[p, k] == triple_to_idx[triple], (p, d)
 
 
 def test_digits_progress_ccw_around_each_pentagon():
