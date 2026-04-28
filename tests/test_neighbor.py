@@ -1,17 +1,13 @@
 """Tests for the Eisenstein-integer ring-1 neighbor walk.
 
-.. warning::
-
-   **Tentative — paired with the paused walk in** ``mu3.neighbor``.
-   Symmetry / size / validity checks **fail** for hex cells adjacent
-   to a pentagon (pentagon-distortion ring-1 case). Skipped here via
-   ``pytestmark = pytest.mark.skip`` so the rest of the suite stays
-   green; un-skip when the walk is rebuilt on a dodec base.
-
 The walk is algebraic (no sphere math), so most checks are integer /
 combinatorial. The sphere-geometry check at the end confirms the walk's
 output is also geometrically consistent — ring-1 neighbor centers sit at
 roughly a single resolution-dependent edge length on the unit sphere.
+
+Some tests are marked xfail: cross-pentagon ring-1 transitions break
+symmetry / step-length / sphere-distance invariants at res >= 1. See
+``todo/2026-04-28-post-pentagon-centric-cleanup.md`` item (1).
 """
 
 from __future__ import annotations
@@ -19,11 +15,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skip(
-    reason="paused: pentagon-distortion ring-1 cases fail; pivoting to dodec base"
-)
-
 from mu3 import cell_center, cell_ring1, cells_at_res, is_valid_cell
+
+_XFAIL_CROSS_PENTAGON = pytest.mark.xfail(
+    reason="cross-pentagon ring-1 walk has known symmetry/distance bugs (todo item 1)",
+    strict=True,
+)
 from mu3.cell import _eisenstein_center
 from mu3.face_lattice import (
     NEIGHBOR_TRANS,
@@ -65,7 +62,11 @@ def test_ring1_size_res0_is_five(res):
         assert len(cell_ring1((b,))) == 5
 
 
-@pytest.mark.parametrize("res", [1, 2, 3])
+@pytest.mark.parametrize("res", [
+    1,
+    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
+])
 def test_ring1_size_hex_cells(res):
     """Hex cells (first-nonzero ≠ 0) should have 6 neighbors except when
     the ring brushes a pentagon (then 5)."""
@@ -99,7 +100,12 @@ def test_all_neighbors_are_valid(res):
 
 # --- Symmetry ---------------------------------------------------------------
 
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
+@pytest.mark.parametrize("res", [
+    0,
+    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
+])
 def test_ring1_symmetry(res):
     """c' ∈ ring1(c) ⇒ c ∈ ring1(c')."""
     for cell in cells_at_res(res):
@@ -126,7 +132,11 @@ def _expected_edge_length(res: int) -> float:
     return 1.0 / (7 ** (res / 2))
 
 
-@pytest.mark.parametrize("res", [1, 2, 3])
+@pytest.mark.parametrize("res", [
+    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
+])
 def test_ring1_eisenstein_step_length(res):
     """Each ring-1 neighbor's Eisenstein position (in the same base frame
     when possible) is at unit distance 1/get_rot(res) from the cell's.
@@ -146,7 +156,11 @@ def test_ring1_eisenstein_step_length(res):
             assert abs(d - target) < 1e-9, (cell, nb, d, target)
 
 
-@pytest.mark.parametrize("res", [1, 2, 3])
+@pytest.mark.parametrize("res", [
+    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
+    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
+])
 def test_ring1_sphere_distance(res):
     """All ring-1 neighbor centers sit near a single per-resolution edge
     length on the unit sphere. The spread is bounded by icosahedral
