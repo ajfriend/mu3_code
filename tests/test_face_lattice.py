@@ -2,9 +2,9 @@ import cmath
 import math
 
 from mu3.face_lattice import (
+    digit_offset,
     divmod_ei,
     get_rot,
-    h3_digit_offset,
     omega,
     pentagon_skipped_digit,
     round_ei,
@@ -29,25 +29,23 @@ def test_units_have_unit_magnitude_at_60deg_steps():
         assert abs(angles[k] - k * math.pi / 3) < 1e-12
 
 
-def test_h3_digit_offsets_are_unit_magnitude():
+def test_digit_offsets_are_unit_magnitude():
     for d in range(1, 7):
-        assert abs(abs(h3_digit_offset[d]) - 1.0) < 1e-12
-    assert h3_digit_offset[0] == 0
+        assert abs(abs(digit_offset[d]) - 1.0) < 1e-12
+    assert digit_offset[0] == 0
 
 
-def test_h3_ccw_cycle_matches_source():
-    # CCW 60° rotation: 1 → 5 → 4 → 6 → 2 → 3 → 1 (from H3 coordijk.h).
-    cycle = [1, 5, 4, 6, 2, 3]
+def test_ccw_cycle_is_sequential():
+    # +60° CCW rotation cycles digits 1 → 2 → 3 → 4 → 5 → 6 → 1.
     rot60 = cmath.exp(1j * math.pi / 3)
-    for k in range(6):
-        d = cycle[k]
-        d_next = cycle[(k + 1) % 6]
-        assert abs(h3_digit_offset[d] * rot60 - h3_digit_offset[d_next]) < 1e-12
+    for d in range(1, 7):
+        d_next = (d % 6) + 1
+        assert abs(digit_offset[d] * rot60 - digit_offset[d_next]) < 1e-12
 
 
-def test_h3_i_axis_is_at_angle_zero():
-    # Our 2D embedding puts i at 0° so H3 digit 4 (i) points along +x.
-    assert abs(h3_digit_offset[4] - 1.0) < 1e-12
+def test_d6_is_along_primary_direction():
+    # Digit 6 sits along the primary direction (angle 0°).
+    assert abs(digit_offset[6] - 1.0) < 1e-12
 
 
 def test_pentagon_skipped_digit_is_1():

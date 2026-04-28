@@ -115,9 +115,9 @@ def vertex_neighbors() -> np.ndarray:
 
 
 # CCW digit sequence starting from digit 2 (skipping the deleted digit 1).
-# H3 cycle is 1 → 5 → 4 → 6 → 2 → 3 → 1; dropping digit 1 and starting from
-# digit 2 gives the CCW-ordered visit sequence of the 5 surviving digits.
-_PENTAGON_DIGIT_CCW = (2, 3, 5, 4, 6)
+# Digits 1..6 march strictly CCW around the parent hex; with d=1 deleted in
+# pentagons, the surviving CCW order is the sequential (2, 3, 4, 5, 6).
+_PENTAGON_DIGIT_CCW = (2, 3, 4, 5, 6)
 
 
 @lru_cache(maxsize=None)
@@ -131,9 +131,8 @@ def pentagon_face_table() -> np.ndarray:
     2. Sort them CCW around ``V[p]`` in the tangent plane at ``V[p]``,
        looking from outside the sphere.
     3. Assign the smallest-index incident face to digit 2.
-    4. Following CCW around the pentagon, assign digits in the cycle
-       ``2, 3, 5, 4, 6`` — which matches H3's CCW digit order with the
-       deleted digit 1 skipped.
+    4. Following CCW around the pentagon, assign digits in the sequential
+       cycle ``2, 3, 4, 5, 6`` — d=1 is the deleted direction.
     """
     V = vertices()
     F = faces()

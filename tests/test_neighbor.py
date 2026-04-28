@@ -27,7 +27,7 @@ from mu3 import cell_center, cell_ring1, cells_at_res, is_valid_cell
 from mu3.cell import _eisenstein_center
 from mu3.face_lattice import (
     NEIGHBOR_TRANS,
-    h3_digit_offset,
+    digit_offset,
     s7a,
     s7b,
 )
@@ -42,8 +42,8 @@ def test_trans_table_identity():
         for d in range(7):
             for D in range(7):
                 d_new, D_carry = NEIGHBOR_TRANS[parity][d][D]
-                lhs = h3_digit_offset[d] + h3_digit_offset[D]
-                rhs = h3_digit_offset[d_new] + h3_digit_offset[D_carry] * ratio
+                lhs = digit_offset[d] + digit_offset[D]
+                rhs = digit_offset[d_new] + digit_offset[D_carry] * ratio
                 assert abs(lhs - rhs) < 1e-9, (parity, d, D, d_new, D_carry)
 
 

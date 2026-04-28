@@ -15,21 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon, Wedge
 
-from mu3.face_lattice import get_rot, omega, s3, units
-
-# New mu3 digit convention (preview; face_lattice.py still uses H3 numbering).
-# Digits 1-6 go strictly CCW around the hex, with d=1 immediately CCW of the
-# primary direction (which lies on the boundary between d=6 at 0° and d=1 at 60°).
-# d=1 is the deleted direction. Pentagon surviving cycle: (2, 3, 4, 5, 6).
-h3_digit_offset: dict[int, complex] = {
-    0: 0,
-    1: 1 + omega,    # 60°  (DELETED in pentagons)
-    2: omega,        # 120°
-    3: -1,           # 180°
-    4: -1 - omega,   # 240°
-    5: -omega,       # 300°
-    6: 1,            # 0°
-}
+from mu3.face_lattice import digit_offset, get_rot, omega, s3, units
 
 
 def hex_corners(center: complex, rot: complex) -> list[complex]:
@@ -67,7 +53,7 @@ def enumerate_cells(res: int):
         for k, d in enumerate(digits, start=1):
             if d == 0:
                 continue
-            z += h3_digit_offset[d] / get_rot(k)
+            z += digit_offset[d] / get_rot(k)
         yield (digits, z)
 
 

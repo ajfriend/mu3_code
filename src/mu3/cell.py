@@ -35,37 +35,38 @@ from typing import Iterator, Sequence
 import numpy as np
 
 from . import icosahedron
-from .face_lattice import get_rot, h3_digit_offset, r_face, s3, units
+from .face_lattice import get_rot, digit_offset, r_face, s3, units
 from .projection import AlphaSlerp
 
 # +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
 _ROT60 = cmath.exp(1j * math.pi / 3)
 
-# Deleted wedge in Eisenstein (triangle convention): [180°, 240°). Points here
-# get rotated +60° into d=5's (post-stitch) wedge [240°, 300°).
-_DELETED_LO = 180.0
-_DELETED_HI = 240.0
+# Deleted wedge in Eisenstein (triangle convention): [0°, 60°). Sits
+# immediately CCW of the primary direction at 0°. Points here get rotated
+# +60° into d=2's (post-stitch) wedge [60°, 120°).
+_DELETED_LO = 0.0
+_DELETED_HI = 60.0
 
 # CCW digit cycle, matching icosahedron.pentagon_face_table's assignment.
-_CCW_CYCLE = (2, 3, 5, 4, 6)
+_CCW_CYCLE = (2, 3, 4, 5, 6)
 
 # For each face-digit d, which digit-ray sits at the CCW (upper) boundary of
-# d's Eisenstein wedge. (This is the digit whose neighbor vertex is shared
-# between f_d and its CCW-next face in the fan around V[p].)
-_UPPER_DIGIT = {2: 6, 3: 2, 5: 3, 4: 5, 6: 4}
+# d's Eisenstein wedge. With digits 1..6 sequential CCW, d's wedge has its
+# own ray at its CCW boundary -- so this is the identity on 2..6.
+_UPPER_DIGIT = {2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
 
 # For each face-digit d, the two digit-rays bordering d's (post-stitch)
 # Eisenstein wedge and the wedge's angular endpoints:
 #   (cw_ray_digit, ccw_ray_digit, theta_cw_deg, theta_ccw_deg)
-# d=4 is the stretched face; after stitching its wedge is [240°, 300°) and
-# its CW ray at 240° stands in for the d=3 ray (that's where the stitched
-# half of the wedge came from).
+# d=2 is the stretched face; its CW ray at 60° is the merged ray (d=1
+# folded onto d=6 along the primary direction). We label it 6 since d=1
+# has no face entry.
 _WEDGE_ENDPOINTS = {
-    2: (4, 6, 0.0,   60.0),
-    3: (6, 2, 60.0,  120.0),
-    5: (2, 3, 120.0, 180.0),
-    4: (3, 5, 240.0, 300.0),
-    6: (5, 4, 300.0, 360.0),
+    2: (6, 2,  60.0, 120.0),
+    3: (2, 3, 120.0, 180.0),
+    4: (3, 4, 180.0, 240.0),
+    5: (4, 5, 240.0, 300.0),
+    6: (5, 6, 300.0, 360.0),
 }
 
 
@@ -74,7 +75,7 @@ def _angle_deg(z: complex) -> float:
 
 
 def _stitch(z: complex) -> complex:
-    """If z sits in the deleted wedge, rotate it +60° onto d=5's wedge."""
+    """If z sits in the deleted wedge, rotate it +60° onto d=2's wedge."""
     if z == 0j:
         return z
     if _DELETED_LO <= _angle_deg(z) < _DELETED_HI:
@@ -85,14 +86,14 @@ def _stitch(z: complex) -> complex:
 def _classify_stitched(z: complex) -> int:
     """Face-digit d whose Eisenstein wedge contains a POST-STITCH point z."""
     a = _angle_deg(z)
-    if a < 60.0:
-        return 2
     if a < 120.0:
-        return 3
+        return 2  # absorbs the (now-empty post-stitch) [0, 60) via the stitch
     if a < 180.0:
-        return 5
+        return 3
+    if a < 240.0:
+        return 4
     if a < 300.0:
-        return 4  # only reachable post-stitch (the original [180, 240) is gone)
+        return 5
     return 6
 
 
@@ -202,7 +203,7 @@ def _eisenstein_center(digits: Sequence[int]) -> complex:
     for k, d in enumerate(digits, start=1):
         if d == 0:
             continue
-        z += h3_digit_offset[d] / get_rot(k)
+        z += digit_offset[d] / get_rot(k)
     return z
 
 

@@ -119,11 +119,11 @@ def _vertex_to_tuple(v: np.ndarray) -> tuple[int, int, int]:
 # Pentagon face table, closed form.
 # Face k (0..4) is the triangle (pentagon, neighbors[k], neighbors[(k+1)%5]);
 # its center = (v + n_k + n_{k+1}) / 3, normalized.
-# Digit mapping: smallest CCW index >= primary direction gets digit 2, then
-# cycle 2,3,5,4,6 in CCW order.
+# Digit mapping: first face CCW from the primary direction gets digit 2,
+# then sequential CCW cycle 2,3,4,5,6 (d=1 deleted).
 # =====================================================================
 
-PENTAGON_DIGIT_CCW = (2, 3, 5, 4, 6)
+PENTAGON_DIGIT_CCW = (2, 3, 4, 5, 6)
 
 
 def pentagon_faces(tup: tuple[int, int, int]) -> list[np.ndarray]:

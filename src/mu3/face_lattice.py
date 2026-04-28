@@ -4,26 +4,27 @@ Adapted from prototype code in ``../2026-04-02_eisint/src/eisint/eisint.py``.
 Math stays in the 2D complex plane of a single icosahedron face; cross-face
 bookkeeping lives in the indexing layer.
 
-Digit labeling follows H3's convention (see
-``/Users/aj/work/h3/src/h3lib/include/coordijk.h``):
+Digit labeling: digits 1..6 march strictly CCW around the parent hex,
+anchored to the per-pentagon primary direction from ``mu3.dodec``. Digit 6
+sits along the primary direction (angle 0); digit 1 is the next wedge CCW
+(angle 60), and is the pentagon-deleted direction:
 
     0 = center
-    1 = k        (pentagon-deleted direction)
-    2 = j
-    3 = j+k  = -i
-    4 = i
-    5 = i+k  = -j
-    6 = i+j  = -k
+    1 =  60°   (pentagon-deleted direction; immediately CCW of primary)
+    2 = 120°
+    3 = 180°
+    4 = 240°
+    5 = 300°
+    6 =   0°   (along the primary direction)
 
-CCW 60° rotation cycles the digits ``1 → 5 → 4 → 6 → 2 → 3 → 1``.
-
-The 2D embedding places H3's i-axis at angle 0° (aligned with the face's
-local ``u`` direction from :func:`mu3.icosahedron.face_frames`), j at 120°,
-k at 240°.
+CCW 60° rotation simply increments digit 1..6: ``1 → 2 → 3 → 4 → 5 → 6 → 1``.
 
 Aperture-7 per-resolution rotation alternates (Class II / Class III):
 even resolutions are unrotated relative to res 0, odd resolutions are
 rotated by ``arg(s7b) ≈ +19.106°``.
+
+See ``reports/nearest-dodecahedron-face.md`` (Option A primary direction)
+and ``figures/primary_direction_convention.png``.
 """
 
 from __future__ import annotations
@@ -47,21 +48,20 @@ units = (
     -omega,
 )
 
-h3_digit_offset: dict[int, complex] = {
+digit_offset: dict[int, complex] = {
     0: 0,
-    1: -1 - omega,  # k,     240°
-    2: omega,       # j,     120°
-    3: -1,          # j+k,   180°
-    4: 1,           # i,       0°
-    5: -omega,      # i+k,   300°
-    6: 1 + omega,   # i+j,    60°
+    1: 1 + omega,   #  60°  (DELETED in pentagons; immediately CCW of primary)
+    2: omega,       # 120°
+    3: -1,          # 180°
+    4: -1 - omega,  # 240°
+    5: -omega,      # 300°
+    6: 1,           #   0°  (along the primary direction)
 }
 
 pentagon_skipped_digit = 1
 
-# H3 CCW digit cycle from coordijk.h: a +60° CCW rotation of an Eisenstein
-# offset cycles digits 1 → 5 → 4 → 6 → 2 → 3 → 1.
-_DIGIT_CCW_NEXT = {0: 0, 1: 5, 5: 4, 4: 6, 6: 2, 2: 3, 3: 1}
+# Sequential +60° CCW digit cycle: 1 → 2 → 3 → 4 → 5 → 6 → 1.
+_DIGIT_CCW_NEXT = {0: 0, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 1}
 
 
 def rotate_digit_ccw(d: int, steps: int = 1) -> int:
@@ -73,14 +73,14 @@ def rotate_digit_ccw(d: int, steps: int = 1) -> int:
 
 
 _OFFSET_TO_DIGIT: dict[tuple[int, int], int] = {}
-for _d, _off in h3_digit_offset.items():
+for _d, _off in digit_offset.items():
     _b_imag = _off.imag / omega.imag
     _a_real = _off.real - _b_imag * omega.real
     _OFFSET_TO_DIGIT[(round(_a_real), round(_b_imag))] = _d
 
 
 def digit_for_offset(z: complex) -> int:
-    """Digit whose ``h3_digit_offset`` equals ``z``; -1 if ``z`` is not one.
+    """Digit whose ``digit_offset`` equals ``z``; -1 if ``z`` is not one.
 
     ``z`` must be one of the 7 Eisenstein offsets (within 1e-9). The caller
     is expected to feed values produced by the divmod-driven neighbor walk,
@@ -90,7 +90,7 @@ def digit_for_offset(z: complex) -> int:
     a = z.real - b * omega.real
     key = (round(a), round(b))
     d = _OFFSET_TO_DIGIT.get(key, -1)
-    if d < 0 or abs(z - h3_digit_offset[d]) > 1e-9:
+    if d < 0 or abs(z - digit_offset[d]) > 1e-9:
         return -1
     return d
 
@@ -159,7 +159,7 @@ def _neighbor_step_single(d: int, D: int, parity: int) -> tuple[int, int]:
     by Euclidean division in Z[ω] by ``ratio``.
     """
     ratio = s7b if parity == 1 else s7a
-    S = h3_digit_offset[d] + h3_digit_offset[D]
+    S = digit_offset[d] + digit_offset[D]
     if abs(S) < 1e-12:
         return 0, 0
     q, r = divmod_ei(S, ratio)

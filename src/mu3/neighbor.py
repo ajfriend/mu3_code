@@ -53,7 +53,7 @@ from typing import Sequence
 from . import icosahedron
 from .face_lattice import (
     NEIGHBOR_TRANS,
-    h3_digit_offset,
+    digit_offset,
     rotate_digit_ccw,
 )
 
@@ -63,13 +63,15 @@ from .face_lattice import (
 # Directions to enumerate for ring-1 (digit 0 is center, skip).
 _RING1_DIRECTIONS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 
-# Pentagon-wedge CCW digit sequence (H3 cycle with the deleted digit 1
-# skipped); shared with :mod:`mu3.cell` and :mod:`mu3.icosahedron`.
-_CCW_CYCLE: tuple[int, ...] = (2, 3, 5, 4, 6)
+# Pentagon-wedge CCW digit sequence (digits march strictly CCW around the
+# parent hex, with d=1 deleted); shared with :mod:`mu3.cell` and
+# :mod:`mu3.icosahedron`.
+_CCW_CYCLE: tuple[int, ...] = (2, 3, 4, 5, 6)
 
 # For each face-digit ``d``, the digit whose Eisenstein ray sits at the
-# CCW (upper-angle) boundary of ``d``'s wedge. Mirrors ``cell._UPPER_DIGIT``.
-_UPPER_DIGIT: dict[int, int] = {2: 6, 3: 2, 5: 3, 4: 5, 6: 4}
+# CCW (upper-angle) boundary of ``d``'s wedge. With sequential digits this
+# is the identity on 2..6.
+_UPPER_DIGIT: dict[int, int] = {2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
 
 
 def _neighbor_vertex_of_digit(p: int, d: int) -> int:
@@ -111,7 +113,7 @@ def _build_base_tables() -> tuple[tuple[tuple[int, ...], ...], tuple[tuple[int, 
             # exp(-i*theta) where theta is the CCW rotation of b''s frame
             # relative to b's frame; r = # of CCW 60° steps to apply to every
             # old-frame digit to get the new-frame digit.
-            exp_minus_theta = h3_digit_offset[D_prime] / (-h3_digit_offset[D])
+            exp_minus_theta = digit_offset[D_prime] / (-digit_offset[D])
             r = int(round(cmath.phase(exp_minus_theta) / (math.pi / 3))) % 6
             base_next[b][D] = b_prime
             base_rot[b][D] = r

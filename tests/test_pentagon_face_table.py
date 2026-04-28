@@ -37,11 +37,11 @@ def test_digit_2_is_smallest_index_incident_face():
 
 def test_digits_progress_ccw_around_each_pentagon():
     # In V[p]'s tangent plane, visiting faces in the CCW digit sequence
-    # (2, 3, 5, 4, 6) must yield angles increasing by ~72° mod 2π.
+    # (2, 3, 4, 5, 6) must yield angles increasing by ~72° mod 2π.
     t = icosahedron.pentagon_face_table()
     V = icosahedron.vertices()
     C = icosahedron.face_centers()
-    ccw_sequence = (2, 3, 5, 4, 6)
+    ccw_sequence = (2, 3, 4, 5, 6)
 
     for p in range(12):
         v = V[p]
