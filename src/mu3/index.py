@@ -2,10 +2,8 @@
 
 At res 0 the cell id is just the icosa vertex index (0..11): the base
 pentagon centered at that vertex owns the spherical Voronoi region around
-it. The goal is eventually a cell index scheme that is kink-free across
-icosahedron edges and around pentagon cells. The Eisenstein-integer face
-arithmetic explored in ``2026-04-02_eisint`` is the starting point for the
-per-face coordinate system at higher resolutions.
+it. Higher-resolution indexing layers on the per-pentagon Eisenstein
+lattice (see ``mu3.face_lattice`` and ``mu3.cell``).
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 
 from . import icosahedron
-from .projection import Gnomonic
 
 
 def latlng_to_vec(lat_deg, lng_deg) -> np.ndarray:
@@ -40,37 +37,28 @@ def latlng_to_cell(lat_deg, lng_deg):
 def _latlng_to_cell_detailed(p: np.ndarray):
     """Run the full pipeline, returning (final_cell, pre_polish_candidate).
 
-    Used by tests to verify that polish never swaps at res 0.
+    The base pentagon for a point on the unit sphere is the icosa vertex
+    closest to the point: the Voronoi cells of icosa vertices on the
+    sphere are precisely the dodecahedron faces. ``argmax(V @ p)`` gives
+    that vertex directly.
+
+    Polish is retained for parity with the previous behavior (and for
+    higher-resolution use); at res 0 it is a no-op when the argmax is
+    correct.
     """
     V = icosahedron.vertices()
-    F = icosahedron.faces()
-    centers = icosahedron.face_centers()
-    frames = icosahedron.face_frames()
     neighbors = icosahedron.vertex_neighbors()
 
     shape = p.shape[:-1]
     flat = p.reshape(-1, 3)
     n = flat.shape[0]
 
-    face_idx = np.argmax(flat @ centers.T, axis=1)  # (n,)
+    candidate = np.argmax(flat @ V.T, axis=1).astype(np.int64)
 
-    candidate = np.empty(n, dtype=np.int64)
-    for k in range(n):
-        f = face_idx[k]
-        center, u, _ = frames[f]
-        gn = Gnomonic(center=center, up=u)
-        xy = gn.inverse(flat[k])
-        corners_xy = gn.inverse(V[F[f]])
-        d2 = ((corners_xy - xy) ** 2).sum(axis=-1)
-        candidate[k] = F[f, int(np.argmin(d2))]
-
-    # Polish: among {candidate} ∪ neighbors[candidate], take argmax(V @ p).
-    # At res 0 this is a no-op when the 2D step is correct.
     final = candidate.copy()
     for k in range(n):
         c = candidate[k]
         pool = np.concatenate([[c], neighbors[c]])
-        dots = V[pool] @ flat[k]
-        final[k] = pool[int(np.argmax(dots))]
+        final[k] = pool[int(np.argmax(V[pool] @ flat[k]))]
 
     return final.reshape(shape), candidate.reshape(shape)

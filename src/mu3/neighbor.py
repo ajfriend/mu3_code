@@ -63,35 +63,15 @@ from .face_lattice import (
 # Directions to enumerate for ring-1 (digit 0 is center, skip).
 _RING1_DIRECTIONS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 
-# Pentagon-wedge CCW digit sequence (digits march strictly CCW around the
-# parent hex, with d=1 deleted); shared with :mod:`mu3.cell` and
-# :mod:`mu3.icosahedron`.
-_CCW_CYCLE: tuple[int, ...] = (2, 3, 4, 5, 6)
-
-# For each face-digit ``d``, the digit whose Eisenstein ray sits at the
-# CCW (upper-angle) boundary of ``d``'s wedge. With sequential digits this
-# is the identity on 2..6.
-_UPPER_DIGIT: dict[int, int] = {2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
-
-
 def _neighbor_vertex_of_digit(p: int, d: int) -> int:
     """Icosa vertex that pentagon ``p``'s digit-``d`` ray points to.
 
-    Same derivation as ``mu3.cell._neighbor_vertex_of_digit``, inlined here
-    to keep the neighbor module import-cheap.
+    Digit ``d``'s ray sits at the CCW boundary of ``d``'s wedge (angle
+    ``d * 60°``) in pentagon-Eisenstein. With ``vertex_neighbors[p]``
+    indexed CCW from the primary direction, that's neighbor index
+    ``(d - 1) % 5``.
     """
-    F = icosahedron.faces()
-    pft = icosahedron.pentagon_face_table()
-    for i, d_curr in enumerate(_CCW_CYCLE):
-        if _UPPER_DIGIT[d_curr] != d:
-            continue
-        d_next = _CCW_CYCLE[(i + 1) % 5]
-        f_curr = int(pft[p, d_curr - 2])
-        f_next = int(pft[p, d_next - 2])
-        shared = (set(int(x) for x in F[f_curr]) & set(int(x) for x in F[f_next])) - {p}
-        assert len(shared) == 1, (p, d, shared)
-        return shared.pop()
-    raise ValueError(f"no face has upper-boundary digit {d}")
+    return int(icosahedron.vertex_neighbors()[p][(d - 1) % 5])
 
 
 # --- Base tables ---

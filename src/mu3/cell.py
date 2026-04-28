@@ -8,20 +8,24 @@ A cell is a tuple ``(base, d_1, d_2, ..., d_N)`` where:
 At res 0 a cell is a 1-tuple ``(base,)``. The first nonzero child digit
 cannot be 1 (pentagon-deleted direction).
 
-Pipeline (same for pentagon and hex cells, centers and boundary corners):
+Pipeline (pentagon-centric; same for cell centers and boundary corners):
 
-1. Accumulate the Eisenstein position ``z`` from the digit sequence.
-2. If ``arg(z) ∈ [180°, 240°)`` — the "deleted" wedge — rotate by +60°.
-   This folds the lattice's fictitious d=1 sector onto d=5's real wedge.
-3. Classify the post-stitch angle into one of five 60° wedges, each owned
-   by one icosa face-digit (d=2, 3, 5, 4, 6).
-4. Apply that face's similarity map (a complex scale+rotation pinned by
-   the two non-pentagon corners of the face) to get face-2D coordinates.
-5. Gnomonic-forward from the face's center to the unit sphere.
+1. Accumulate the Eisenstein position ``z`` from the digit sequence,
+   centered on the base pentagon.
+2. If ``arg(z) ∈ [0°, 60°)`` — the deleted wedge sitting immediately CCW
+   of the primary direction — rotate by +60° onto d=2's wedge.
+3. Classify the post-stitch angle into one of five 60° wedges, owned by
+   face-digits ``d ∈ {2, 3, 4, 5, 6}``.
+4. Read off barycentric weights ``(b_p, b_cw, b_ccw)`` for the flat
+   wedge with corners ``(0, exp(i·(d-1)·60°), exp(i·d·60°))``.
+5. Hand those weights to ``AlphaSlerp(V[p], V[n_cw], V[n_ccw])`` where
+   ``n = vertex_neighbors[p]`` and ``n_cw = n[d-2]``,
+   ``n_ccw = n[(d-1) % 5]``.
 
-Pentagon-center cells fall out of the same pipeline: corner k=3 sits at
-Eisenstein angle 210°, gets rotated +60° to 270°, and coincides with corner
-k=4 — so the 6-corner hex formula naturally produces a 5-gon.
+Pentagon-center cells fall out of the same pipeline: corner k=0 sits at
+Eisenstein angle 30° (in the deleted wedge), gets rotated +60° to 90°,
+and coincides with corner k=1 — so the 6-corner hex formula naturally
+produces a 5-gon.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from typing import Iterator, Sequence
 import numpy as np
 
 from . import icosahedron
-from .face_lattice import get_rot, digit_offset, r_face, s3, units
+from .face_lattice import digit_offset, get_rot, s3, units
 from .projection import AlphaSlerp
 
 # +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
@@ -46,29 +50,6 @@ _ROT60 = cmath.exp(1j * math.pi / 3)
 # +60° into d=2's (post-stitch) wedge [60°, 120°).
 _DELETED_LO = 0.0
 _DELETED_HI = 60.0
-
-# CCW digit cycle, matching icosahedron.pentagon_face_table's assignment.
-_CCW_CYCLE = (2, 3, 4, 5, 6)
-
-# For each face-digit d, which digit-ray sits at the CCW (upper) boundary of
-# d's Eisenstein wedge. With digits 1..6 sequential CCW, d's wedge has its
-# own ray at its CCW boundary -- so this is the identity on 2..6.
-_UPPER_DIGIT = {2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
-
-# For each face-digit d, the two digit-rays bordering d's (post-stitch)
-# Eisenstein wedge and the wedge's angular endpoints:
-#   (cw_ray_digit, ccw_ray_digit, theta_cw_deg, theta_ccw_deg)
-# d=2 is the stretched face; its CW ray at 60° is the merged ray (d=1
-# folded onto d=6 along the primary direction). We label it 6 since d=1
-# has no face entry.
-_WEDGE_ENDPOINTS = {
-    2: (6, 2,  60.0, 120.0),
-    3: (2, 3, 120.0, 180.0),
-    4: (3, 4, 180.0, 240.0),
-    5: (4, 5, 240.0, 300.0),
-    6: (5, 6, 300.0, 360.0),
-}
-
 
 def _angle_deg(z: complex) -> float:
     return math.degrees(math.atan2(z.imag, z.real)) % 360.0
@@ -97,104 +78,49 @@ def _classify_stitched(z: complex) -> int:
     return 6
 
 
-def _neighbor_vertex_of_digit(p: int, d: int) -> int:
-    """Icosa vertex index that pentagon p's d-ray points to.
-
-    Derived from the shared-non-p vertex between f_{d_curr} and its CCW-next
-    face, where d_curr is the digit whose face has d at its upper boundary.
-    """
-    F = icosahedron.faces()
-    pft = icosahedron.pentagon_face_table()
-    for i, d_curr in enumerate(_CCW_CYCLE):
-        if _UPPER_DIGIT[d_curr] != d:
-            continue
-        d_next = _CCW_CYCLE[(i + 1) % 5]
-        f_curr = int(pft[p, d_curr - 2])
-        f_next = int(pft[p, d_next - 2])
-        shared = (set(int(x) for x in F[f_curr]) & set(int(x) for x in F[f_next])) - {p}
-        assert len(shared) == 1
-        return shared.pop()
-    raise ValueError(f"no face has upper-boundary digit {d}")
-
-
-def _face_corner_2d(face: int, vertex: int) -> complex:
-    """Position of icosa-vertex ``vertex`` in ``face``'s face-2D frame."""
-    V = icosahedron.vertices()
-    frames = icosahedron.face_frames()
-    center, u, v = frames[face]
-    p3 = V[vertex]
-    q = p3 / np.dot(p3, center)
-    return complex(np.dot(q, u), np.dot(q, v))
+_INV_SQRT3 = 1.0 / math.sqrt(3.0)
 
 
 @lru_cache(maxsize=None)
-def _similarity_maps(p: int) -> dict[int, tuple[complex, complex]]:
-    """Per-pentagon similarity maps. Returns {face_digit d: (vb, A)} such that
-    a POST-STITCH Eisenstein point z in face d's wedge maps to face-2D as
-    ``vb + A * z``. A is a pure complex scale+rotation — the stretched face
-    d=4 becomes a normal 60° wedge after stitching.
+def _wedge_align_rot(d: int) -> complex:
+    """``exp(-i·(d-1)·60°)`` — rotates digit ``d``'s wedge CW boundary onto +x."""
+    return cmath.exp(-1j * math.radians((d - 1) * 60.0))
+
+
+def _wedge_barycentric(z: complex, d: int) -> np.ndarray:
+    """Barycentric weights ``(b_p, b_cw, b_ccw)`` for Eisenstein ``z`` in
+    digit ``d``'s flat 60° wedge with corners
+    ``(0, exp(i·(d-1)·60°), exp(i·d·60°))``.
+
+    Barycentric is affine-invariant, so the same weights map directly onto
+    the 3D triangle ``(V[p], V[n_cw], V[n_ccw])`` under AlphaSlerp.
     """
-    pft = icosahedron.pentagon_face_table()
-    out: dict[int, tuple[complex, complex]] = {}
-    for d, (d_cw, d_ccw, theta_a_deg, theta_b_deg) in _WEDGE_ENDPOINTS.items():
-        face = int(pft[p, d - 2])
-        vb = _face_corner_2d(face, p)
-        n_cw = _neighbor_vertex_of_digit(p, d_cw)
-        n_ccw = _neighbor_vertex_of_digit(p, d_ccw)
-        v_a = _face_corner_2d(face, n_cw)
-        v_b = _face_corner_2d(face, n_ccw)
-        e_a = cmath.exp(1j * math.radians(theta_a_deg))
-        e_b = cmath.exp(1j * math.radians(theta_b_deg))
-        A = (v_a - vb) / e_a
-        assert abs(A * e_b - (v_b - vb)) < 1e-9, (
-            f"wedge d={d} at p={p} is not a pure similarity"
-        )
-        out[d] = (vb, A)
-    return out
+    z_aligned = z * _wedge_align_rot(d)
+    b_ccw = 2.0 * z_aligned.imag * _INV_SQRT3
+    b_cw = z_aligned.real - 0.5 * b_ccw
+    b_p = 1.0 - b_cw - b_ccw
+    return np.array([b_p, b_cw, b_ccw])
 
 
 @lru_cache(maxsize=None)
-def _alpha_slerp_for_face(face: int) -> AlphaSlerp:
-    """Per-face AlphaSlerp projector, instantiated with the face's three
-    icosa-vertex unit 3-vectors in CCW order (as given by the face table)."""
-    V = icosahedron.vertices()
-    F = icosahedron.faces()
-    v0, v1, v2 = V[F[face, 0]], V[F[face, 1]], V[F[face, 2]]
-    return AlphaSlerp(v0, v1, v2)
-
-
-_SQRT3 = math.sqrt(3.0)
-
-
-def _face_2d_to_barycentric(xy: complex, face: int) -> np.ndarray:
-    """Barycentric coordinates on the face triangle for a face-2D point.
-
-    In each face's face-2D frame the three corners sit at magnitude
-    ``r_face`` at angles 0°, 120°, 240° (face_i_vertex at 0°, the other
-    two at ±120°). That gives an explicit closed-form inverse, no linear
-    solve needed. The output order matches face corner order
-    ``(F[face, 0], F[face, 1], F[face, 2])``.
+def _alpha_slerp(p: int, d: int) -> AlphaSlerp:
+    """AlphaSlerp on the spherical triangle ``(V[p], V[n_cw], V[n_ccw])``,
+    where ``n = vertex_neighbors[p]``, ``n_cw = n[d-2]``,
+    ``n_ccw = n[(d-1) % 5]``. 12 × 5 = 60 cached entries.
     """
-    x, y = xy.real, xy.imag
-    b0 = (2.0 * x / r_face + 1.0) / 3.0
-    rest = (1.0 - b0) / 2.0
-    off = y / (r_face * _SQRT3)
-    b1 = rest + off
-    b2 = rest - off
-    return np.array([b0, b1, b2])
+    V = icosahedron.vertices()
+    n = icosahedron.vertex_neighbors()[p]
+    return AlphaSlerp(V[p], V[n[d - 2]], V[n[(d - 1) % 5]])
 
 
 def _project(z: complex, base: int) -> np.ndarray:
-    """Eisenstein → stitch → per-face similarity → barycentric → α-slerp → sphere."""
+    """Eisenstein → stitch → wedge barycentric → α-slerp → sphere."""
     if z == 0j:
         return icosahedron.vertices()[base].copy()
     z_s = _stitch(z)
     d = _classify_stitched(z_s)
-    vb, A = _similarity_maps(base)[d]
-    xy = vb + A * z_s
-    face = int(icosahedron.pentagon_face_table()[base, d - 2])
-    beta = _face_2d_to_barycentric(xy, face)
-    return _alpha_slerp_for_face(face).forward_barycentric(beta)
+    beta = _wedge_barycentric(z_s, d)
+    return _alpha_slerp(base, d).forward_barycentric(beta)
 
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:

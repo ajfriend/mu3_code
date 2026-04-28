@@ -72,35 +72,6 @@ def face_centers() -> np.ndarray:
 
 
 @lru_cache(maxsize=None)
-def face_i_vertex() -> np.ndarray:
-    """Return (20,) array: for each face, which of its vertex indices defines the i-axis.
-
-    Placeholder: uses the face's smallest-index vertex (column 0 of the
-    sorted-triple from :func:`faces`). A primary-direction-anchored choice
-    is a separate convention decision.
-    """
-    return faces()[:, 0].copy()
-
-
-@lru_cache(maxsize=None)
-def face_frames() -> np.ndarray:
-    """Return (20, 3, 3): per-face orthonormal 3D frame.
-
-    For face ``f``, rows are ``(center, u, v)``:
-    ``u`` is the unit tangent at ``center`` pointing toward the i-axis vertex,
-    ``v = cross(center, u)``.
-    """
-    V = vertices()
-    C = face_centers()
-    I = face_i_vertex()
-    target = V[I]  # (20, 3)
-    u_raw = target - (target * C).sum(axis=1, keepdims=True) * C
-    u = u_raw / np.linalg.norm(u_raw, axis=1, keepdims=True)
-    v = np.cross(C, u)
-    return np.stack([C, u, v], axis=1)
-
-
-@lru_cache(maxsize=None)
 def vertex_neighbors() -> np.ndarray:
     """Return (12, 5) array: the 5 icosa-vertex neighbors of each vertex.
 
@@ -134,17 +105,3 @@ def pentagon_face_table() -> np.ndarray:
     return out
 
 
-def v_base_face2d(base: int, face: int) -> complex:
-    """2D position of icosa vertex ``base`` in face ``face``'s local frame.
-
-    Returned as a complex number (x + iy) in face-2D coordinates (gnomonic
-    from face center). ``base`` must be a corner of ``face``.
-    """
-    V = vertices()
-    frames = face_frames()
-    center, u, v = frames[face]
-    p = V[base]
-    # Gnomonic inverse: p -> 2D tangent-plane coords at center.
-    denom = p @ center
-    q = p / denom
-    return complex(q @ u, q @ v)
