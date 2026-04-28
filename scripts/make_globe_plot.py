@@ -1,5 +1,6 @@
-"""Self-contained HTML page with 4 rotatable d3 globes showing mu3's res 0-3
-cells on the sphere, with the icosahedron edges overlaid for reference.
+"""Self-contained HTML page with 4 synchronized rotatable globes showing
+mu3's res 0–3 cells on the sphere, with the 30 icosahedron edges overlaid
+and Earth landmasses for orientation.
 
 Cells come straight from the library: ``mu3.cell_boundary(cell)`` where
 ``cell = (base, d_1, ..., d_N)``.
@@ -7,175 +8,57 @@ Cells come straight from the library: ``mu3.cell_boundary(cell)`` where
 
 from __future__ import annotations
 
-import json
+import sys
 from pathlib import Path
 
-import numpy as np
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _globe_template import render_globe_page, unit_to_lnglat
 
-from mu3 import cell_boundary, cells_at_res, icosahedron
-
-
-def unit_to_lnglat(v: np.ndarray) -> list[float]:
-    x, y, z = float(v[0]), float(v[1]), float(v[2])
-    lng = float(np.degrees(np.arctan2(y, x)))
-    lat = float(np.degrees(np.arcsin(max(-1.0, min(1.0, z)))))
-    return [lng, lat]
+from mu3 import cell_boundary, cells_at_res, dodec
 
 
-def cell_ring(cell: tuple) -> list[list[float]]:
-    bnd = cell_boundary(cell, closed=True)
-    return [unit_to_lnglat(v) for v in bnd]
+def main():
+    icosa_lines = [
+        [unit_to_lnglat(dodec.normals[i]), unit_to_lnglat(dodec.normals[j])]
+        for (i, j) in dodec.icosa_edges
+    ]
 
-
-def icosahedron_edges() -> list[list[list[float]]]:
-    V = icosahedron.vertices()
-    F = icosahedron.faces()
-    edges: set[tuple[int, int]] = set()
-    for face in F:
-        a, b, c = int(face[0]), int(face[1]), int(face[2])
-        for u, v in ((a, b), (b, c), (c, a)):
-            edges.add(tuple(sorted((u, v))))
-    return [[unit_to_lnglat(V[u]), unit_to_lnglat(V[v])] for u, v in edges]
-
-
-def main() -> None:
-    cells_by_res: dict[str, list] = {}
+    panels = []
     for r in (0, 1, 2, 3):
         polys = []
         for cell in cells_at_res(r):
-            polys.append([cell_ring(cell)])
-        cells_by_res[str(r)] = polys
+            ring = [unit_to_lnglat(v) for v in cell_boundary(cell, closed=True)]
+            polys.append([ring])
+        panels.append({
+            "id": f"g-{r}",
+            "title": f"Resolution {r}",
+            "subtitle": f"{len(polys)} cells",
+            "layers": [
+                {"type": "lines", "coords": icosa_lines, "style": {
+                    "stroke": "#888", "strokeWidth": 1.5, "strokeOpacity": 0.5,
+                }},
+                {"type": "polygons", "coords": polys, "style": {
+                    "stroke": "#c33", "strokeWidth": 0.5, "fill": "#e55", "fillOpacity": 0.2,
+                }},
+            ],
+        })
         print(f"res {r}: {len(polys)} cells")
 
-    icosa_lines = icosahedron_edges()
-    print(f"icosahedron: {len(icosa_lines)} edges")
-
-    data = {"cells_by_res": cells_by_res, "icosahedron_edges": icosa_lines}
-    data_json = json.dumps(data)
+    info_html = """<aside class="info">
+  <h1>mu3 cells on the sphere</h1>
+  <p>Icosahedral DGGS, aperture 7. Pentagons at icosa vertices; hexes fill out at higher resolutions.</p>
+  <p>Drag any globe to rotate all four. Scroll to zoom. Double-click to reset.</p>
+  <p>Keys: <kbd>W</kbd>/<kbd>S</kbd> tilt, <kbd>A</kbd>/<kbd>D</kbd> roll, <kbd>Q</kbd>/<kbd>E</kbd> spin, <kbd>+</kbd>/<kbd>-</kbd> zoom.</p>
+</aside>"""
 
     out = Path(__file__).resolve().parent.parent / "figures" / "mu3_globe.html"
-    out.parent.mkdir(exist_ok=True)
-
-    HTML = (
-        """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>mu3 cells on the sphere</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 20px; color: #222; background: #fff; }
-  h1 { font-weight: 400; margin-bottom: 4px; }
-  .sub { color: #555; font-size: 13px; margin-bottom: 20px; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; max-width: 1200px; }
-  .panel { border: 1px solid #ddd; padding: 12px; border-radius: 4px; }
-  .panel h2 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #334; }
-  .panel .count { color: #888; font-size: 12px; margin: 0 0 6px 0; }
-  .globe { width: 100%; aspect-ratio: 1; cursor: grab; }
-  .globe:active { cursor: grabbing; }
-</style>
-</head>
-<body>
-
-<h1>mu3 cells on the sphere</h1>
-<div class="sub">Icosahedral DGGS, aperture 7. Base pentagons at icosa vertices; hexes fill out at higher resolutions. Drag any globe to rotate all; double-click to reset.</div>
-
-<div class="grid">
-  <div class="panel"><h2>Resolution 0</h2><div class="count" id="c-0"></div><div id="g-0" class="globe"></div></div>
-  <div class="panel"><h2>Resolution 1</h2><div class="count" id="c-1"></div><div id="g-1" class="globe"></div></div>
-  <div class="panel"><h2>Resolution 2</h2><div class="count" id="c-2"></div><div id="g-2" class="globe"></div></div>
-  <div class="panel"><h2>Resolution 3</h2><div class="count" id="c-3"></div><div id="g-3" class="globe"></div></div>
-</div>
-
-<script type="module">
-  import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
-  import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
-
-  const DATA = __DATA_PLACEHOLDER__;
-
-  // d3 expects CW outer rings for small polygons on a sphere (right-hand rule).
-  // mu3 returns CCW GeoJSON-style rings. Reverse them.
-  for (const key of Object.keys(DATA.cells_by_res)) {
-    DATA.cells_by_res[key] = DATA.cells_by_res[key].map(
-      polygon => polygon.map(ring => ring.slice().reverse())
-    );
-  }
-
-  for (const res of Object.keys(DATA.cells_by_res)) {
-    document.getElementById('c-' + res).textContent = DATA.cells_by_res[res].length + ' cells';
-  }
-
-  const icosaFeature = {
-    type: 'Feature',
-    geometry: { type: 'MultiLineString', coordinates: DATA.icosahedron_edges }
-  };
-
-  const sharedRotate = [20, -30, 0];
-  const renderAll = [];
-  function renderAllGlobes() { for (const r of renderAll) r(); }
-
-  function setupGlobe(res, containerId) {
-    const container = document.getElementById(containerId);
-
-    const gridFeature = {
-      type: 'Feature',
-      geometry: { type: 'MultiPolygon', coordinates: DATA.cells_by_res[res] }
-    };
-
-    function getSize() { return container.offsetWidth || 400; }
-
-    function render() {
-      const size = getSize();
-      container.innerHTML = '';
-
-      const plot = Plot.plot({
-        width: size,
-        height: size,
-        projection: { type: 'orthographic', rotate: sharedRotate.slice(), inset: 2 },
-        marks: [
-          Plot.graticule({ strokeOpacity: 0.1 }),
-          Plot.geo(icosaFeature, { stroke: '#888', strokeWidth: 1.5, strokeOpacity: 0.5 }),
-          Plot.geo(gridFeature, { stroke: '#c33', strokeWidth: 0.5, fill: '#e55', fillOpacity: 0.2 }),
-          Plot.sphere({ strokeWidth: 2 })
-        ]
-      });
-
-      container.appendChild(plot);
-
-      const drag = d3.drag()
-        .on('start', (e) => { drag.sx = e.x; drag.sy = e.y; drag.sr = sharedRotate.slice(); })
-        .on('drag', (e) => {
-          const dx = e.x - drag.sx, dy = e.y - drag.sy, k = 0.25;
-          sharedRotate[0] = drag.sr[0] + dx * k;
-          sharedRotate[1] = drag.sr[1] - dy * k;
-          sharedRotate[2] = 0;
-          renderAllGlobes();
-        });
-      d3.select(plot).call(drag);
-      d3.select(plot).on('dblclick', () => {
-        sharedRotate[0] = 20; sharedRotate[1] = -30; sharedRotate[2] = 0;
-        renderAllGlobes();
-      });
-    }
-
-    renderAll.push(render);
-    render();
-    window.addEventListener('resize', () => render());
-  }
-
-  setupGlobe('0', 'g-0');
-  setupGlobe('1', 'g-1');
-  setupGlobe('2', 'g-2');
-  setupGlobe('3', 'g-3');
-</script>
-</body>
-</html>
-"""
-    ).replace("__DATA_PLACEHOLDER__", data_json)
-
-    out.write_text(HTML)
-    print(f"\nwrote {out}")
-    print(f"size: {out.stat().st_size / 1024:.1f} KB")
-    print(f"open with: open {out}")
+    render_globe_page(
+        title="mu3 cells on the sphere",
+        info_html=info_html,
+        panels=panels,
+        output_path=out,
+        layout="grid",
+    )
 
 
 if __name__ == "__main__":
