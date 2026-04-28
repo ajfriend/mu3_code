@@ -1,22 +1,17 @@
-"""Dodecahedron geometry: 12 faces as ``(axis, s1, s2)`` tuples internally.
+"""Dodecahedron geometry: 12 faces in H3's icosahedron orientation.
 
-Public interface uses integer face labels in ``0..11``; the tuple form is
-internal scaffolding for deriving normals and neighbors.
-
-The 12 dodecahedron faces are dual to the 12 icosahedron vertices. Using the
-standard-position icosahedron (vertices = cyclic permutations of
-``(0, +/-1, +/-phi)``), each face/vertex falls into one of three families
-distinguished by which axis is zero:
+Public interface uses integer face labels in ``0..11``. Internally each face
+is built from a symbolic ``(axis, s1, s2)`` tuple over the standard-position
+icosahedron (vertices = cyclic permutations of ``(0, +/-1, +/-phi)``):
 
     axis 0 (x):  ( 0,            s1,           s2 * phi )
     axis 1 (y):  ( s2 * phi,     0,            s1       )
     axis 2 (z):  ( s1,           s2 * phi,    0         )
 
-A face is labeled ``(axis, s1, s2)`` where ``axis in {0, 1, 2}`` is the zero
-axis (0=x, 1=y, 2=z) and ``s1, s2 in {-1, +1}`` are the signs of the
-coefficient-1 and coefficient-phi components, in that order. The 3-fold
-rotation ``x -> y -> z -> x`` of the icosahedral group is ``axis + 1 mod 3``;
-antipode flips both signs.
+That standard position is then rotated by ``_R_H3`` (see below) so the 12
+vertices land on H3's water-aligned positions, matching H3's icosahedron
+orientation. All public quantities (normals, pentagon_corners,
+primary_tangents) are in this final H3-oriented frame.
 
 See ``reports/nearest-dodecahedron-face.md`` for the design rationale and a
 comparison with alternative labelings.
@@ -25,6 +20,8 @@ comparison with alternative labelings.
 import math
 
 import numpy as np
+
+from .rotation import rotation_matrix
 
 PHI = (1.0 + math.sqrt(5.0)) / 2.0
 NORM = math.sqrt(1.0 + PHI * PHI)
@@ -46,11 +43,28 @@ _faces = [
 ]
 
 
-# Unit outward normals (= dual icosahedron vertex directions), aligned with `_faces`.
+# Unit outward normals (= dual icosahedron vertex directions), aligned with
+# `_faces`. Built first in standard position; rotated into H3's orientation
+# below.
 normals = [
     np.roll(np.array([0.0, s1, s2*PHI]), axis) / NORM
     for (axis, s1, s2) in _faces
 ]
+
+
+# Rotation matching H3's icosahedron orientation (vertices over water) with
+# face 0 sent to H3's highest-latitude vertex (Greenland Sea, lat 64.7 N,
+# lng 10.5 E), so face 0's pentagon encloses the geographic north pole.
+_R_H3 = rotation_matrix(
+    source = normals[0],
+    target = np.array([0.420152433357666, 0.078145250933923, 0.904082547088666]),
+    # H3 alignment, plus one 5-fold tick clockwise around face 0
+    # (CW around the outward normal = negative twist).
+    twist_rad = -0.028365119330803733 - (2 * math.pi / 5),
+)
+
+# Apply R_H3: overwrite normals into H3's orientation.
+normals = [_R_H3 @ n for n in normals]
 
 
 # Edge-adjacent neighbors as indices into `_faces`. Each row holds the 5
