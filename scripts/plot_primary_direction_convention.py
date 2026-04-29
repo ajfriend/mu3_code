@@ -14,8 +14,6 @@ This drops H3's IJK bit-encoding (we never used it) in favor of digits
 that are simply positions around the hex.
 """
 
-from __future__ import annotations
-
 import math
 from pathlib import Path
 

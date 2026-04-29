@@ -11,8 +11,6 @@ P=0 and Q=5 (k=1, j=2, joint rotation 120 deg). The walk vector is drawn
 from (0, 2)'s center; the destination is annotated as the 3-cell corner.
 """
 
-from __future__ import annotations
-
 import cmath
 import math
 from pathlib import Path

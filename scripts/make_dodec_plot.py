@@ -6,8 +6,6 @@ overlaid for orientation.
 Output: ``figures/dodec_globe.html``.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

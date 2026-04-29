@@ -13,8 +13,6 @@ The primary direction on each pentagon is the tangent at its center pointing
 toward the "same-family neighbor" (flip s_1). See reports/nearest-dodecahedron-face.md.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

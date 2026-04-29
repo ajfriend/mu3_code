@@ -28,8 +28,6 @@ and coincides with corner k=1 — so the 6-corner hex formula naturally
 produces a 5-gon.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

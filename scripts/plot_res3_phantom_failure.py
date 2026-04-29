@@ -24,8 +24,6 @@ Two panels, zoomed to show the res-3 lattice around (0, 2, 6, 6):
 Output: ``figures/res3_phantom_failure.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

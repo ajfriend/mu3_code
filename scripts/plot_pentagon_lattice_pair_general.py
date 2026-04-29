@@ -35,8 +35,6 @@ parameterized by ``K_INDEX`` below.
 Output: ``figures/pentagon_lattice_pair_general.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

@@ -6,8 +6,6 @@ tile the 2D plane — which should make obvious whether the internal lattice
 math is consistent, independent of any sphere projection.
 """
 
-from __future__ import annotations
-
 import cmath
 import math
 from pathlib import Path

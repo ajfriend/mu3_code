@@ -27,8 +27,6 @@ Each panel supplies a list of layers. Supported layer types:
 directly (Plot's channel API).
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

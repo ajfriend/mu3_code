@@ -18,8 +18,6 @@ what the stitching does on the sphere (the jumping corners in 2D are the
 corners that end up on an adjacent icosahedron face in 3D).
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

@@ -10,8 +10,6 @@ Edit the variables at the top of ``main()`` to change seed, sample size, or
 tolerance.
 """
 
-from __future__ import annotations
-
 import math
 import time
 from dataclasses import dataclass

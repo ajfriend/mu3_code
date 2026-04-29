@@ -15,8 +15,6 @@ collapses via the +60 deg intra-stitch self-loop); other hex cells
 return 6.
 """
 
-from __future__ import annotations
-
 import cmath
 import math
 from functools import lru_cache

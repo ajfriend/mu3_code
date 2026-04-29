@@ -7,8 +7,6 @@ CCW order from each pentagon's primary direction the digit convention is
 anchored to.
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 
 import numpy as np

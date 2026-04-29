@@ -22,8 +22,6 @@ its ring-1 neighbors -- minimal clutter.
 Output: ``figures/intrapentagon_ring1.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

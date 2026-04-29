@@ -13,8 +13,6 @@ choice of digit-2 offset convention.
 Runs standalone; does not import mu3.
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 PHI = (1 + np.sqrt(5)) / 2

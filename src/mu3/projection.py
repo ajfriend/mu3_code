@@ -6,8 +6,6 @@ interface is kept minimal so alternative maps — α-slerp, D_3-corrected,
 equal-area tweaks — can be dropped in without touching the indexing layer.
 """
 
-from __future__ import annotations
-
 import math
 from typing import Protocol
 

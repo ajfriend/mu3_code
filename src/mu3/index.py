@@ -6,8 +6,6 @@ it. Higher-resolution indexing layers on the per-pentagon Eisenstein
 lattice (see ``mu3.face_lattice`` and ``mu3.cell``).
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 from . import icosahedron

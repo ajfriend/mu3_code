@@ -13,8 +13,6 @@ the source (0, 2, 6, 6).
 Output: ``figures/phantom_both_twins.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

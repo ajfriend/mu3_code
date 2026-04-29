@@ -27,8 +27,6 @@ See ``reports/nearest-dodecahedron-face.md`` (Option A primary direction)
 and ``figures/primary_direction_convention.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import math
 

@@ -6,8 +6,6 @@ neighbor centers sit at roughly a single resolution-dependent edge length
 on the unit sphere.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
 

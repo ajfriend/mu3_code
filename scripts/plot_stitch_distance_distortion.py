@@ -21,8 +21,6 @@ Two panels:
 Output: ``figures/stitch_distance_distortion.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

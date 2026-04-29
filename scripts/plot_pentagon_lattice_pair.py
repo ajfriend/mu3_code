@@ -20,8 +20,6 @@ lattices share the spoke from (0, 0) to (1, 0) exactly.
 Output: ``figures/pentagon_lattice_pair.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

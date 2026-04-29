@@ -19,8 +19,6 @@ frame, with the res-3 cell lattice drawn. Highlights:
 Output: ``figures/failing_walk_res3.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

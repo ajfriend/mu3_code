@@ -32,8 +32,6 @@ roots of unity) means the re-rooting transform is purely
 integer-valued in the lattice -- no floats, no rationalization.
 """
 
-from __future__ import annotations
-
 import math
 
 from . import dodec

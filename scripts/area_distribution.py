@@ -14,8 +14,6 @@ Edit ``MAX_RES`` below to change the range. Deeper resolutions cost
 roughly 7× more time per step.
 """
 
-from __future__ import annotations
-
 import math
 import time
 

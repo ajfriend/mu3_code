@@ -6,8 +6,6 @@ Cells come straight from the library: ``mu3.cell_boundary(cell)`` where
 ``cell = (base, d_1, ..., d_N)``.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

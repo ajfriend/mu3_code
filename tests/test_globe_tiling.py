@@ -12,8 +12,6 @@ proper tiling of the sphere:
 Tests drive the library directly via ``cells_at_res`` and ``cell_boundary``.
 """
 
-from __future__ import annotations
-
 from collections import Counter
 
 import numpy as np

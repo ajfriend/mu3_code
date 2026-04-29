@@ -21,8 +21,6 @@ Setup:
 Output: ``figures/stitch_twin_asymmetry.png``.
 """
 
-from __future__ import annotations
-
 import cmath
 import itertools
 import math

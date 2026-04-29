@@ -5,8 +5,6 @@ Phase 1 of the projection-independent latlng_to_cell plan
 ``_polish_cell_sphere`` directly since it is an internal API.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
 
