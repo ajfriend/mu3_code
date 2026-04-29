@@ -7,6 +7,7 @@ from mu3 import (
     cell_area,
     cell_boundary,
     cell_center,
+    cell_resolution,
     cells_at_res,
     icosahedron,
     is_pentagon,
@@ -253,7 +254,7 @@ def test_cells_at_res_count(res, expected):
 def test_cells_at_res_all_valid(res):
     for cell in cells_at_res(res):
         assert is_valid_cell(cell), f"invalid cell yielded: {cell}"
-        assert len(cell) == res + 1
+        assert cell_resolution(cell) == res
 
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
@@ -335,3 +336,20 @@ def test_is_pentagon_count_matches_expected_at_each_res():
 def test_is_pentagon_invalid_input_returns_false():
     assert is_pentagon(None) is False
     assert is_pentagon(42) is False  # int, no [1:] slicing
+
+
+# ---------- cell_resolution ----------
+
+
+def test_cell_resolution_simple():
+    assert cell_resolution((0,)) == 0
+    assert cell_resolution((11,)) == 0
+    assert cell_resolution((0, 2)) == 1
+    assert cell_resolution((0, 0, 0)) == 2
+    assert cell_resolution((5, 2, 6, 3, 4)) == 4
+
+
+def test_cell_resolution_matches_cells_at_res():
+    for res in range(0, 4):
+        for cell in cells_at_res(res):
+            assert cell_resolution(cell) == res

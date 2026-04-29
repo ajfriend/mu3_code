@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import Sequence
 
 from . import icosahedron
-from .cell import _eisenstein_center
+from .cell import _eisenstein_center, cell_resolution
 from .cross_pentagon import (
     CROSS_PENTAGON,
     EISENSTEIN_UNITS,
@@ -149,12 +149,12 @@ def cell_ring1(cell: Sequence[int]) -> list[tuple[int, ...]]:
     to ``cell[0]``.
     """
     cell_t = tuple(int(x) for x in cell)
-    if len(cell_t) == 1:
+    if cell_resolution(cell_t) == 0:
         return list(_res0_neighbors(cell_t[0]))
 
     base = cell_t[0]
     digits = cell_t[1:]
-    res = len(digits)
+    res = cell_resolution(cell_t)
     z_C = _eisenstein_center(digits)
     rot_N = get_rot(res)
 

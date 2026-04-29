@@ -11,30 +11,28 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mu3 import cell_center, cell_ring1, cells_at_res, is_pentagon, is_valid_cell
+from mu3 import cell_center, cell_resolution, cell_ring1, cells_at_res, is_pentagon, is_valid_cell
 from mu3.cell import _eisenstein_center
 
 
-# --- Ring size --------------------------------------------------------------
-
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
+@pytest.mark.parametrize('res', [0, 1, 2, 3])
 def test_ring1_size(res):
-    """Pentagons have exactly 5 ring-1 neighbors (the deleted-direction
-    walk collapses); every other hex cell has exactly 6."""
-    for cell in cells_at_res(res):
-        n = len(cell_ring1(cell))
-        expected = 5 if is_pentagon(cell) else 6
-        assert n == expected, (cell, n, expected)
+    for c in cells_at_res(res):
+        N = len(cell_ring1(c))
+
+        if is_pentagon(c):
+            assert N == 5
+        else:
+            assert N == 6
 
 
-# --- Validity ---------------------------------------------------------------
-
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
+@pytest.mark.parametrize('res', [0, 1, 2, 3])
 def test_all_neighbors_are_valid(res):
     for cell in cells_at_res(res):
         for nb in cell_ring1(cell):
-            assert is_valid_cell(nb), (cell, nb)
-            assert len(nb) == len(cell), (cell, nb)
+            assert is_valid_cell(nb)
+            assert cell_resolution(nb) == cell_resolution(cell)
+
 
 
 # --- Symmetry ---------------------------------------------------------------

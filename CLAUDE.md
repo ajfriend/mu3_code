@@ -36,7 +36,9 @@ each `d_k ∈ {0..6}`. Paths whose first non-zero digit is 1 are
 *excluded* — they'd live in some pentagon's deleted wedge. Pentagon-
 center cells are `is_pentagon(cell)` = "all child digits zero."
 
-Public predicates: `is_valid_cell`, `is_pentagon` (in `mu3.cell`).
+Public helpers (in `mu3.cell`): `is_valid_cell`, `is_pentagon`,
+`cell_resolution`. Prefer these over inline `len(cell) - 1` /
+`all(d == 0 for d in cell[1:])` in package code.
 
 ### Resolution-rotation alternation
 

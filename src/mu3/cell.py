@@ -217,6 +217,16 @@ def is_pentagon(cell) -> bool:
         return False
 
 
+def cell_resolution(cell) -> int:
+    """Resolution of ``cell``: 0 for ``(base,)``, ``N`` for
+    ``(base, d_1, ..., d_N)``.
+
+    Does not validate the cell -- call :func:`is_valid_cell` separately
+    if needed.
+    """
+    return len(cell) - 1
+
+
 def cell_center(cell: Sequence[int]) -> np.ndarray:
     """Unit 3-vector on the sphere for ``cell = (base, d_1, ..., d_N)``."""
     base, digits = cell[0], cell[1:]
@@ -260,7 +270,7 @@ def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     """
     base, digits = cell[0], cell[1:]
     z = _eisenstein_center(digits)
-    rot_N = get_rot(len(digits))
+    rot_N = get_rot(cell_resolution(cell))
 
     seen: set[tuple] = set()
     pts: list[np.ndarray] = []
