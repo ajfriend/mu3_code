@@ -1,6 +1,8 @@
 export UV_NO_EDITABLE := "1"
 export UV_OFFLINE := "0"  # toggle on when offline to avoid failures
 
+import 'figures.just'
+
 _:
     just --list
 
@@ -17,16 +19,6 @@ reinstall:
 [group('extra')]
 lab: reinstall
     uv run jupyter lab
-
-[group('extra')]
-globe: reinstall
-    uv run scripts/make_globe_plot.py
-    open figures/mu3_globe.html
-
-[group('extra')]
-primary-direction:
-    uv run scripts/make_primary_direction_plot.py
-    open figures/primary_direction.html
 
 clean:
     just _rm __pycache__
