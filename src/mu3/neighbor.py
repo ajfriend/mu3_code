@@ -220,8 +220,3 @@ def cell_ring1(cell: Sequence[int]) -> list[tuple[int, ...]]:
         seen.add(nb)
         out.append(nb)
     return out
-
-
-def cell_neighbors(cell: Sequence[int]) -> list[tuple[int, ...]]:
-    """Alias for :func:`cell_ring1`."""
-    return cell_ring1(cell)

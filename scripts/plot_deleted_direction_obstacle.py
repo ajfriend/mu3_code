@@ -3,8 +3,8 @@
 Walking from cell ``(0, 2)`` in direction D=1 at res 1 lands at a position
 that is a 3-hex corner -- shared by ``(0, 2)``, the deleted ``(0, 1)``,
 and ``(5, 4)`` -- not at any cell center. ``z_to_cell`` cannot recover
-digits from a corner, which is what blew up Phase B's pure geometric
-``cell_neighbors``.
+digits from a corner, which is what blew up the pure geometric
+``cell_ring1``.
 
 This figure shows the case at res 1 in the joint flat frame of pentagons
 P=0 and Q=5 (k=1, j=2, joint rotation 120 deg). The walk vector is drawn
