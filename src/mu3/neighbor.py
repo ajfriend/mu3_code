@@ -163,55 +163,57 @@ def cell_ring1(cell: Sequence[int]) -> list[tuple[int, ...]]:
     from .cell import cell_center
     src_3d = cell_center(cell_t)
 
-    # Walk all 6 directions; defer phantom walks so direct walks
-    # populate ``seen`` first. Phantom twins prefer the choice that's
-    # not already a known neighbor.
-    direct: list[tuple[int, ...]] = []
-    phantoms: list[tuple[complex, complex, tuple[int, ...]]] = []
+    # Pass 1: walk all 6 directions in D=1..D=6 order, classifying each
+    # as direct or phantom. Collect the direct cells into a set so
+    # phantom-twin selection in Pass 2 can avoid duplicating them.
+    raw: list[tuple[str, ...]] = []
+    direct_set: set[tuple[int, ...]] = set()
     for D in (1, 2, 3, 4, 5, 6):
         step = digit_offset[D] / rot_N
         z_n = z_C + step
         nb = _step_to_cell(z_n, base, res)
         if _has_leading_zero_d1(nb):
-            phantoms.append((z_n, step, nb))
+            raw.append(("phantom", z_n, step, nb))
         else:
-            direct.append(nb)
+            raw.append(("direct", nb))
+            direct_set.add(nb)
 
-    for nb in direct:
-        if nb in seen:
-            continue
-        seen.add(nb)
-        out.append(nb)
-
-    for z_n, step, raw_nb in phantoms:
-        # Phantom: pick between CCW and CW digit-rotation twins.
-        # The +60 deg intra-pentagon stitch is a 3D identification, but
-        # in the flat frame the "correct" rotation direction depends
-        # on the source's position on the icosa surface.
-        ccw = (raw_nb[0], *(rotate_digit_ccw(d, 1) for d in raw_nb[1:]))
-        cw = (raw_nb[0], *(rotate_digit_ccw(d, 5) for d in raw_nb[1:]))
-        # Prefer a twin that isn't self and isn't already seen as a
-        # direct walk -- those are real new ring-1 neighbors.
-        ccw_avail = ccw != cell_t and ccw not in seen
-        cw_avail = cw != cell_t and cw not in seen
-        if ccw_avail and not cw_avail:
-            nb = ccw
-        elif cw_avail and not ccw_avail:
-            nb = cw
-        elif ccw_avail and cw_avail:
-            # Both new candidates -- pick closer on sphere.
-            ccw_3d = cell_center(ccw)
-            cw_3d = cell_center(cw)
-            d_ccw = float(((src_3d - ccw_3d) ** 2).sum())
-            d_cw = float(((src_3d - cw_3d) ** 2).sum())
-            if abs(d_ccw - d_cw) < 1e-12:
-                cross = z_C.real * step.imag - z_C.imag * step.real
-                nb = ccw if cross >= 0 else cw
+    # Pass 2: emit in walk order (CCW around the source on the sphere),
+    # disambiguating phantoms with knowledge of all direct neighbors.
+    for entry in raw:
+        if entry[0] == "direct":
+            nb = entry[1]
+        else:
+            _, z_n, step, raw_nb = entry
+            # Pick between CCW and CW digit-rotation twins.
+            # The +60 deg intra-pentagon stitch is a 3D identification,
+            # but in the flat frame the "correct" rotation direction
+            # depends on the source's position on the icosa surface.
+            ccw = (raw_nb[0], *(rotate_digit_ccw(d, 1) for d in raw_nb[1:]))
+            cw = (raw_nb[0], *(rotate_digit_ccw(d, 5) for d in raw_nb[1:]))
+            # Prefer a twin that isn't self and isn't already a direct
+            # neighbor -- those are real new ring-1 neighbors.
+            ccw_avail = ccw != cell_t and ccw not in direct_set
+            cw_avail = cw != cell_t and cw not in direct_set
+            if ccw_avail and not cw_avail:
+                nb = ccw
+            elif cw_avail and not ccw_avail:
+                nb = cw
+            elif ccw_avail and cw_avail:
+                ccw_3d = cell_center(ccw)
+                cw_3d = cell_center(cw)
+                d_ccw = float(((src_3d - ccw_3d) ** 2).sum())
+                d_cw = float(((src_3d - cw_3d) ** 2).sum())
+                if abs(d_ccw - d_cw) < 1e-12:
+                    # On a tie, break with the angular sense of the walk.
+                    cross = z_C.real * step.imag - z_C.imag * step.real
+                    nb = ccw if cross >= 0 else cw
+                else:
+                    nb = ccw if d_ccw < d_cw else cw
             else:
-                nb = ccw if d_ccw < d_cw else cw
-        else:
-            # Both are self or already seen -- skip (collapse).
-            continue
+                # Both are self or duplicates -- skip (deleted-direction
+                # collapse).
+                continue
 
         if nb in seen:
             continue

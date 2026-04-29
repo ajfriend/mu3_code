@@ -61,3 +61,30 @@ def _check_neighbor_lengths(cell):
 def test_ring1_sphere_distance(res):
     for cell in cells_at_res(res):
         _check_neighbor_lengths(cell)
+
+
+def _check_neighbors_ccw(cell):
+    """Neighbors should be ordered CCW around the source cell on the sphere.
+
+    Project each neighbor's 3D center onto the tangent plane at the source
+    center, then verify that consecutive projected vectors rotate CCW
+    (the cross-product, dotted with the outward normal at the source,
+    is positive for every consecutive pair, including the wrap-around).
+    """
+    c = cell_center(cell)
+    proj = []
+    for nb in cell_ring1(cell):
+        n = cell_center(nb)
+        proj.append(n - (n @ c) * c)
+
+    n = len(proj)
+    for i in range(n):
+        a = proj[i]
+        b = proj[(i + 1) % n]
+        assert np.cross(a, b) @ c > 0, (cell, i, cell_ring1(cell)[i], cell_ring1(cell)[(i + 1) % n])
+
+
+@pytest.mark.parametrize("res", [0, 1, 2, 3])
+def test_ring1_ccw_order(res):
+    for cell in cells_at_res(res):
+        _check_neighbors_ccw(cell)
