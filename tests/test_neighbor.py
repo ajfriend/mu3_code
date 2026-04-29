@@ -62,27 +62,33 @@ def test_ring1_sphere_distance():
 
 
 def _check_neighbors_ccw(cell):
-    """Neighbors should be ordered CCW around the source cell on the sphere.
+    """Neighbors should be ordered CCW around the source cell on the
+    sphere AND span exactly one full revolution.
 
-    Project each neighbor's 3D center onto the tangent plane at the source
-    center, then verify that consecutive projected vectors rotate CCW
-    (the cross-product, dotted with the outward normal at the source,
-    is positive for every consecutive pair, including the wrap-around).
+    Project each neighbor's 3D center onto the source's tangent plane
+    and unit-normalize. Each consecutive pair (a, b) -- including the
+    wrap-around -- contributes a signed angle ``atan2((a × b)·c, a·b)``.
+    Each angle must be positive (neighbors rotate CCW); the sum must
+    equal 2π (the loop closes around the source exactly once).
     """
     c = cell_center(cell)
     proj = []
     for nb in cell_ring1(cell):
         n = cell_center(nb)
         n = n - (n @ c) * c
-        n = n/np.linalg.norm(n)
-
+        n = n / np.linalg.norm(n)
         proj.append(n)
 
+    total = 0.0
     n = len(proj)
     for i in range(n):
         a = proj[i]
         b = proj[(i + 1) % n]
-        assert np.cross(a, b) @ c > 0
+        cross_dot_c = float(np.cross(a, b) @ c)
+        dot = float(a @ b)
+        assert cross_dot_c > 0
+        total += float(np.arctan2(cross_dot_c, dot))
+    assert abs(total - 2 * np.pi) < 1e-9
 
 
 def test_ring1_ccw_order():
