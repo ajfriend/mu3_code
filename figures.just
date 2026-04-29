@@ -10,3 +10,8 @@ globe: reinstall
 primary-direction:
     uv run scripts/make_primary_direction_plot.py
     open figures/primary_direction.html
+
+[group('extra')]
+pentagon-neighborhood:
+    uv run scripts/plot_pentagon_neighborhood.py
+    open figures/pentagon_neighborhood.png
