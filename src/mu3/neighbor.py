@@ -38,11 +38,25 @@ _UNFOLD_ROT = -omega
 
 @lru_cache(maxsize=None)
 def _res0_neighbors(base: int) -> tuple[tuple[int, ...], ...]:
-    """The 5 neighbor pentagons at res 0, taken straight from dodec."""
-    return tuple((int(b),) for b in icosahedron.vertex_neighbors()[base])
+    """The 5 neighbor pentagons at res 0, in CCW order around ``base``
+    ending at the primary-direction neighbor (``vertex_neighbors[base][0]``).
+
+    This matches the higher-resolution walk order, which iterates
+    ``D = 1..6`` and so ends at D=6 = the primary-direction step.
+    """
+    nbrs = icosahedron.vertex_neighbors()[base]
+    # Cycle so primary-direction neighbor (k=0) is last.
+    return tuple((int(b),) for b in (*nbrs[1:], nbrs[0]))
 
 
-_MAX_RESIDUE_ITERS = 12
+# Ring-1 walks need at most two transformations to reach a canonical cell:
+# at most one un-fold (residue ``digit_offset[1]``) followed by at most one
+# cross-pentagon hop (residue ``digit_offset[D]`` for ``D in {2..6}``).
+# Algebraically: ``(1+omega) * (-omega) = 1 = digit_offset[6]``, so an un-fold
+# of a deleted-direction residue produces at most a primary-direction residue,
+# which then hops in one step. Anything beyond two transformations indicates a
+# bug (e.g. a ratio-rotation mismatch or a non-ring-1 caller).
+_MAX_TRANSFORMS = 2
 
 
 # Mapping digit ``D`` (2..6) to the k-index of the corresponding neighbor
@@ -77,7 +91,7 @@ def _z_to_cell_with_residue(p: int, z: complex, res: int):
 def _step_to_cell(z_n: complex, base: int, res: int) -> tuple[int, ...]:
     """Resolve a walked position ``z_n`` to a canonical cell tuple.
 
-    Iterative, residue-driven absorption -- no canonicalize, no BFS:
+    Residue-driven absorption -- no canonicalize, no BFS:
 
     1. Run divmod from finest to coarsest level in the current pentagon
        ``p``'s frame. This always extracts a digit string; the residue
@@ -89,16 +103,21 @@ def _step_to_cell(z_n: complex, base: int, res: int) -> tuple[int, ...]:
     4. If ``D in {2..6}``: the canonical cell lives in ``p``'s direction-D
        neighbor. Hop via :data:`CROSS_PENTAGON` and loop.
 
-    Each iteration either rotates ``z`` or hops to a neighbor pentagon
-    -- both isometric on the underlying 3D point. Converges in at most
-    a couple of iterations for the resolutions we run; bounded by
-    :data:`_MAX_RESIDUE_ITERS` as a safety net.
+    Each iteration either rotates ``z`` or hops to a neighbor pentagon --
+    both isometric on the underlying 3D point. For ring-1 walks the loop
+    converges in at most :data:`_MAX_TRANSFORMS` = 2 transformations
+    (algebraic bound; see comment on the constant). The post-loop assert
+    catches any future regression that violates the bound.
     """
     from .face_lattice import digit_for_offset
 
     p = base
     z = z_n
-    for _ in range(_MAX_RESIDUE_ITERS):
+    residue: complex = 0j
+    # ``_MAX_TRANSFORMS + 1`` iterations: each iteration runs divmod and
+    # possibly returns; up to ``_MAX_TRANSFORMS`` transformations applied
+    # between divmods.
+    for _ in range(_MAX_TRANSFORMS + 1):
         digits, residue = _z_to_cell_with_residue(p, z, res)
         if abs(residue) < 1e-9:
             return (p, *digits)
@@ -116,9 +135,10 @@ def _step_to_cell(z_n: complex, base: int, res: int) -> tuple[int, ...]:
             f"_step_to_cell: unexpected residue {residue} (D={D}) "
             f"at p={p}, z={z}"
         )
-    raise RuntimeError(
-        f"_step_to_cell: residue did not converge for z_n={z_n} from "
-        f"base={base} at res={res}"
+    raise AssertionError(
+        f"_step_to_cell: ring-1 walks should converge in <= "
+        f"{_MAX_TRANSFORMS} transformations, but residue {residue} "
+        f"remained for z_n={z_n} from base={base} at res={res}"
     )
 
 
@@ -133,18 +153,25 @@ def _has_leading_zero_d1(cell_t: tuple[int, ...]) -> bool:
 def cell_ring1(cell: Sequence[int]) -> list[tuple[int, ...]]:
     """All ring-1 neighbors of ``cell`` at the same resolution.
 
-    Walks 1 unit step in each of the 6 digit directions. When a walk
-    lands at a phantom (deleted-form digit string), the canonical cell
-    at that 3D point depends on the walk direction relative to the
-    pentagon center: rotate the phantom's digits CCW or CW by 1
-    according to the angular sense of the walk
+    Walks 1 unit step in each of the 6 digit directions ``D = 1..6``,
+    in that order. When a walk lands at a phantom (deleted-form digit
+    string), the canonical cell at that 3D point depends on the walk
+    direction relative to the pentagon center: rotate the phantom's
+    digits CCW or CW by 1 according to the angular sense of the walk
     (``cross(z_source, step) >= 0`` -> CCW, else CW).
+
+    The output is in CCW order around the source on the sphere, ending
+    at the primary-direction neighbor (the cell reached by walking
+    ``D=6``). Walks that collapse via the +60 deg stitch self-loop or
+    duplicate a direct neighbor are skipped.
 
     Pentagon-center cells and pentagon-adjacent hex cells return 5
     neighbors; other hex cells return 6.
 
     At res 0 the neighbors are the 5 icosa-vertex pentagons adjacent
-    to ``cell[0]``.
+    to ``cell[0]``, in CCW order with the primary-direction neighbor
+    (``vertex_neighbors[base][0]``) last -- matching the D=6-last
+    convention at higher resolutions.
     """
     cell_t = tuple(int(x) for x in cell)
     if cell_resolution(cell_t) == 0:

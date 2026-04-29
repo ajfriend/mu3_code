@@ -8,7 +8,18 @@ on the unit sphere.
 
 import numpy as np
 
-from mu3 import cell_center, cell_resolution, cell_ring1, cells_at_res, is_pentagon, is_valid_cell
+from mu3 import (
+    cell_center,
+    cell_resolution,
+    cell_ring1,
+    cells_at_res,
+    dodec,
+    is_pentagon,
+    is_valid_cell,
+)
+from mu3.cell import _eisenstein_center
+from mu3.face_lattice import digit_offset, get_rot
+from mu3.neighbor import _has_leading_zero_d1, _step_to_cell
 
 
 def _test_cells():
@@ -100,3 +111,25 @@ def _check_neighbors_ccw(cell):
 def test_ring1_ccw_order():
     for c in _test_cells():
         _check_neighbors_ccw(c)
+
+
+def test_ring1_ends_at_primary_direction():
+    """The last neighbor in cell_ring1's output is the primary-direction
+    neighbor (the cell reached by walking D=6 at res >= 1, or the
+    primary-direction pentagon ``vertex_neighbors[base][0]`` at res 0)."""
+    for c in _test_cells():
+        ring = cell_ring1(c)
+        last = ring[-1]
+        if cell_resolution(c) == 0:
+            primary = (int(dodec.neighbors[c[0]][0]),)
+            assert last == primary, (c, last, primary)
+        else:
+            # Compute what the D=6 walk produces. If it's a non-phantom
+            # non-self cell, it must equal `last`.
+            z_C = _eisenstein_center(c[1:])
+            rot_N = get_rot(cell_resolution(c))
+            z_n = z_C + digit_offset[6] / rot_N
+            nb = _step_to_cell(z_n, c[0], cell_resolution(c))
+            cell_t = tuple(int(x) for x in c)
+            if not _has_leading_zero_d1(nb) and nb != cell_t:
+                assert last == nb, (c, last, nb)
