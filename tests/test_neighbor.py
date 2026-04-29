@@ -7,14 +7,17 @@ on the unit sphere.
 """
 
 import numpy as np
-import pytest
 
 from mu3 import cell_center, cell_resolution, cell_ring1, cells_at_res, is_pentagon, is_valid_cell
 
 
-@pytest.mark.parametrize('res', [0, 1, 2, 3])
-def test_ring1_size(res):
-    for c in cells_at_res(res):
+def _test_cells():
+    for res in [0,1,2,3]:
+        yield from cells_at_res(res)
+
+
+def test_ring1_size():
+    for c in _test_cells():
         N = len(set(cell_ring1(c)))
 
         if is_pentagon(c):
@@ -23,27 +26,23 @@ def test_ring1_size(res):
             assert N == 6
 
 
-@pytest.mark.parametrize('res', [0, 1, 2, 3])
-def test_all_neighbors_are_valid(res):
-    for cell in cells_at_res(res):
-        for nb in cell_ring1(cell):
-            assert is_valid_cell(nb)
-            assert cell_resolution(nb) == cell_resolution(cell)
+def test_all_neighbors_are_valid():
+    for c in _test_cells():
+        for nb in cell_ring1(c):
+            assert is_valid_cell(nb), (c, nb)
+            assert cell_resolution(nb) == cell_resolution(c), (c, nb)
 
 
-@pytest.mark.parametrize('res', [0, 1, 2, 3])
-def test_ring1_symmetry(res):
+def test_ring1_symmetry():
     """c' ∈ ring1(c) ⇒ c ∈ ring1(c')."""
-    for cell in cells_at_res(res):
-        for nb in cell_ring1(cell):
-            back = cell_ring1(nb)
-            assert cell in back
+    for c in _test_cells():
+        for nb in cell_ring1(c):
+            assert c in cell_ring1(nb), (c, nb)
 
 
-@pytest.mark.parametrize('res', [0, 1, 2, 3])
-def test_ring1_excludes_self(res):
-    for cell in cells_at_res(res):
-        assert cell not in cell_ring1(cell)
+def test_ring1_excludes_self():
+    for c in _test_cells():
+        assert c not in cell_ring1(c), c
 
 
 def _check_neighbor_lengths(cell):
@@ -57,10 +56,9 @@ def _check_neighbor_lengths(cell):
     assert max(lens)/min(lens) < 1.5
 
 
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
-def test_ring1_sphere_distance(res):
-    for cell in cells_at_res(res):
-        _check_neighbor_lengths(cell)
+def test_ring1_sphere_distance():
+    for c in _test_cells():
+        _check_neighbor_lengths(c)
 
 
 def _check_neighbors_ccw(cell):
@@ -84,7 +82,6 @@ def _check_neighbors_ccw(cell):
         assert np.cross(a, b) @ c > 0, (cell, i, cell_ring1(cell)[i], cell_ring1(cell)[(i + 1) % n])
 
 
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
-def test_ring1_ccw_order(res):
-    for cell in cells_at_res(res):
-        _check_neighbors_ccw(cell)
+def test_ring1_ccw_order():
+    for c in _test_cells():
+        _check_neighbors_ccw(c)
