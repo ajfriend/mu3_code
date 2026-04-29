@@ -7,6 +7,10 @@ _:
 test: reinstall
     uv run pytest
 
+# run a specific test file or node id, e.g. `just test-one tests/test_neighbor.py`
+test-one path: reinstall
+    uv run pytest {{path}}
+
 reinstall:
     uv sync --reinstall-package mu3
 
