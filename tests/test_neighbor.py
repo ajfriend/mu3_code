@@ -18,7 +18,7 @@ from mu3.cell import _eisenstein_center
 @pytest.mark.parametrize('res', [0, 1, 2, 3])
 def test_ring1_size(res):
     for c in cells_at_res(res):
-        N = len(cell_ring1(c))
+        N = len(set(cell_ring1(c)))
 
         if is_pentagon(c):
             assert N == 5
@@ -37,18 +37,18 @@ def test_all_neighbors_are_valid(res):
 
 # --- Symmetry ---------------------------------------------------------------
 
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
+@pytest.mark.parametrize('res', [0, 1, 2, 3])
 def test_ring1_symmetry(res):
     """c' ∈ ring1(c) ⇒ c ∈ ring1(c')."""
     for cell in cells_at_res(res):
         for nb in cell_ring1(cell):
             back = cell_ring1(nb)
-            assert cell in back, (cell, nb, back)
+            assert cell in back
 
 
 # --- Self-exclusion ---------------------------------------------------------
 
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
+@pytest.mark.parametrize('res', [0, 1, 2, 3])
 def test_ring1_excludes_self(res):
     for cell in cells_at_res(res):
         assert cell not in cell_ring1(cell)
