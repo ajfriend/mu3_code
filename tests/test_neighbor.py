@@ -1,13 +1,9 @@
-"""Tests for the Eisenstein-integer ring-1 neighbor walk.
+"""Tests for the geometric ring-1 neighbor walk.
 
-The walk is algebraic (no sphere math), so most checks are integer /
-combinatorial. The sphere-geometry check at the end confirms the walk's
-output is also geometrically consistent — ring-1 neighbor centers sit at
-roughly a single resolution-dependent edge length on the unit sphere.
-
-Some tests are marked xfail: cross-pentagon ring-1 transitions break
-symmetry / step-length / sphere-distance invariants at res >= 1. See
-``todo/2026-04-28-post-pentagon-centric-cleanup.md`` item (1).
+Most checks are integer / combinatorial. The sphere-geometry check at the
+end confirms the walk's output is also geometrically consistent -- ring-1
+neighbor centers sit at roughly a single resolution-dependent edge length
+on the unit sphere.
 """
 
 from __future__ import annotations
@@ -16,11 +12,6 @@ import numpy as np
 import pytest
 
 from mu3 import cell_center, cell_ring1, cells_at_res, is_valid_cell
-
-_XFAIL_CROSS_PENTAGON = pytest.mark.xfail(
-    reason="cross-pentagon ring-1 walk has known symmetry/distance bugs (todo item 1)",
-    strict=True,
-)
 from mu3.cell import _eisenstein_center
 from mu3.face_lattice import (
     NEIGHBOR_TRANS,
@@ -62,11 +53,7 @@ def test_ring1_size_res0_is_five(res):
         assert len(cell_ring1((b,))) == 5
 
 
-@pytest.mark.parametrize("res", [
-    1,
-    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
-])
+@pytest.mark.parametrize("res", [1, 2, 3])
 def test_ring1_size_hex_cells(res):
     """Hex cells (first-nonzero ≠ 0) should have 6 neighbors except when
     the ring brushes a pentagon (then 5)."""
@@ -100,12 +87,7 @@ def test_all_neighbors_are_valid(res):
 
 # --- Symmetry ---------------------------------------------------------------
 
-@pytest.mark.parametrize("res", [
-    0,
-    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
-])
+@pytest.mark.parametrize("res", [0, 1, 2, 3])
 def test_ring1_symmetry(res):
     """c' ∈ ring1(c) ⇒ c ∈ ring1(c')."""
     for cell in cells_at_res(res):
@@ -132,35 +114,16 @@ def _expected_edge_length(res: int) -> float:
     return 1.0 / (7 ** (res / 2))
 
 
-@pytest.mark.parametrize("res", [
-    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
-])
-def test_ring1_eisenstein_step_length(res):
-    """Each ring-1 neighbor's Eisenstein position (in the same base frame
-    when possible) is at unit distance 1/get_rot(res) from the cell's.
-
-    To compare across bases we use sphere distance instead — see
-    ``test_ring1_sphere_distance``. This test checks the stronger
-    same-base case.
-    """
-    target = 1.0 / (7 ** (res / 2))
-    for cell in cells_at_res(res):
-        z = _eisenstein_center(cell[1:])
-        for nb in cell_ring1(cell):
-            if nb[0] != cell[0]:
-                continue  # cross-base: frame differs, skip
-            z_nb = _eisenstein_center(nb[1:])
-            d = abs(z_nb - z)
-            assert abs(d - target) < 1e-9, (cell, nb, d, target)
+# Removed: ``test_ring1_eisenstein_step_length`` checked that same-base
+# ring-1 neighbors are at flat-Eisenstein distance ``1/sqrt(7)^res``, but
+# the +60 deg intra-pentagon stitch identifies cells across the deleted
+# wedge, so canonical-form flat distances can be stretched arbitrarily
+# (e.g. ``(0, 0, 2)`` and ``(0, 0, 6)`` are 3D-adjacent but at flat
+# distance ``sqrt(3) × unit_step``). The right invariant is sphere
+# distance, checked below.
 
 
-@pytest.mark.parametrize("res", [
-    pytest.param(1, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(2, marks=_XFAIL_CROSS_PENTAGON),
-    pytest.param(3, marks=_XFAIL_CROSS_PENTAGON),
-])
+@pytest.mark.parametrize("res", [1, 2, 3])
 def test_ring1_sphere_distance(res):
     """All ring-1 neighbor centers sit near a single per-resolution edge
     length on the unit sphere. The spread is bounded by icosahedral
