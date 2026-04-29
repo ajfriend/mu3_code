@@ -11,41 +11,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mu3 import cell_center, cell_ring1, cells_at_res, is_valid_cell
+from mu3 import cell_center, cell_ring1, cells_at_res, is_pentagon, is_valid_cell
 from mu3.cell import _eisenstein_center
 
 
 # --- Ring size --------------------------------------------------------------
 
 @pytest.mark.parametrize("res", [0, 1, 2, 3])
-def test_ring1_size_res0_is_five(res):
-    """Every pentagon base has exactly 5 neighbors at res 0."""
-    if res != 0:
-        pytest.skip("res-0-only check")
-    for b in range(12):
-        assert len(cell_ring1((b,))) == 5
-
-
-@pytest.mark.parametrize("res", [1, 2, 3])
-def test_ring1_size_hex_cells(res):
-    """Hex cells (first-nonzero ≠ 0) should have 6 neighbors except when
-    the ring brushes a pentagon (then 5)."""
-    sizes = set()
+def test_ring1_size(res):
+    """Pentagons have exactly 5 ring-1 neighbors (the deleted-direction
+    walk collapses); every other hex cell has exactly 6."""
     for cell in cells_at_res(res):
-        # Pentagon-center cells (all-zero digits) have 5; hex cells have
-        # 5 or 6 depending on proximity to a pentagon corner.
-        nbrs = cell_ring1(cell)
-        sizes.add(len(nbrs))
-        assert len(nbrs) in (5, 6), (cell, len(nbrs), nbrs)
-    assert sizes <= {5, 6}
-
-
-@pytest.mark.parametrize("res", [0, 1, 2, 3])
-def test_pentagon_center_has_five(res):
-    """The all-zero cell at each base is the pentagon and has 5 neighbors."""
-    for b in range(12):
-        pent = (b, *([0] * res))
-        assert len(cell_ring1(pent)) == 5
+        n = len(cell_ring1(cell))
+        expected = 5 if is_pentagon(cell) else 6
+        assert n == expected, (cell, n, expected)
 
 
 # --- Validity ---------------------------------------------------------------
