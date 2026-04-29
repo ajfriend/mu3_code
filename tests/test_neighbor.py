@@ -13,33 +13,6 @@ import pytest
 
 from mu3 import cell_center, cell_ring1, cells_at_res, is_valid_cell
 from mu3.cell import _eisenstein_center
-from mu3.face_lattice import (
-    NEIGHBOR_TRANS,
-    digit_offset,
-    s7a,
-    s7b,
-)
-
-
-# --- Transition table -------------------------------------------------------
-
-def test_trans_table_identity():
-    """offset[d] + offset[D] == offset[d_new] + offset[D_carry] * ratio."""
-    for parity in (0, 1):
-        ratio = s7b if parity == 1 else s7a
-        for d in range(7):
-            for D in range(7):
-                d_new, D_carry = NEIGHBOR_TRANS[parity][d][D]
-                lhs = digit_offset[d] + digit_offset[D]
-                rhs = digit_offset[d_new] + digit_offset[D_carry] * ratio
-                assert abs(lhs - rhs) < 1e-9, (parity, d, D, d_new, D_carry)
-
-
-def test_trans_table_center_row():
-    """Adding direction D to center digit 0 is direction D with no carry."""
-    for parity in (0, 1):
-        for D in range(7):
-            assert NEIGHBOR_TRANS[parity][0][D] == (D, 0)
 
 
 # --- Ring size --------------------------------------------------------------

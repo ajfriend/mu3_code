@@ -210,9 +210,9 @@ def main():
     ax.set_ylim(view_center.imag - view_radius, view_center.imag + view_radius)
 
     ax.set_title(
-        "The geometric-walk obstacle: D=1 from (0, 2) at res 1 lands at a 3-hex corner\n"
+        "The deleted-direction obstacle: D=1 from (0, 2) at res 1 lands at a 3-hex corner\n"
         "(0, 1) is the deleted wedge of pentagon 0; the walk's destination is on its phantom border\n"
-        "→ pure geometric walk + z_to_cell can't recover; algebraic NEIGHBOR_TRANS bottom-up walk handles this",
+        "→ z_to_cell can't recover digits directly; phantom-twin disambiguation resolves it",
         fontsize=11,
     )
 
