@@ -53,7 +53,7 @@ def _check_neighbor_lengths(cell):
     ]
 
     assert min(lens) > 0
-    assert max(lens)/min(lens) < 1.5
+    assert max(lens)/min(lens) < 1.3
 
 
 def test_ring1_sphere_distance():
@@ -79,16 +79,22 @@ def _check_neighbors_ccw(cell):
         n = n / np.linalg.norm(n)
         proj.append(n)
 
-    total = 0.0
+    angles = []
     n = len(proj)
     for i in range(n):
         a = proj[i]
         b = proj[(i + 1) % n]
-        cross_dot_c = float(np.cross(a, b) @ c)
-        dot = float(a @ b)
-        assert cross_dot_c > 0
-        total += float(np.arctan2(cross_dot_c, dot))
-    assert abs(total - 2 * np.pi) < 1e-9
+
+        angles.append(
+            np.arctan2(
+                np.cross(a, b) @ c,
+                a @ b,
+            )
+        )
+
+    assert all(a > 0 for a in angles)
+    assert abs(sum(angles) - 2 * np.pi) < 1e-9
+    assert max(angles)/min(angles) < 1.5
 
 
 def test_ring1_ccw_order():
