@@ -56,23 +56,6 @@ def test_ring1_excludes_self(res):
 
 # --- Sphere geometry sanity -------------------------------------------------
 
-def _expected_edge_length(res: int) -> float:
-    """Expected Eisenstein unit-step magnitude at resolution ``res``.
-
-    |offset[d]| = 1 at res 0; per-resolution scale is 1/sqrt(7).
-    """
-    return 1.0 / (7 ** (res / 2))
-
-
-# Removed: ``test_ring1_eisenstein_step_length`` checked that same-base
-# ring-1 neighbors are at flat-Eisenstein distance ``1/sqrt(7)^res``, but
-# the +60 deg intra-pentagon stitch identifies cells across the deleted
-# wedge, so canonical-form flat distances can be stretched arbitrarily
-# (e.g. ``(0, 0, 2)`` and ``(0, 0, 6)`` are 3D-adjacent but at flat
-# distance ``sqrt(3) × unit_step``). The right invariant is sphere
-# distance, checked below.
-
-
 @pytest.mark.parametrize("res", [1, 2, 3])
 def test_ring1_sphere_distance(res):
     """All ring-1 neighbor centers sit near a single per-resolution edge
