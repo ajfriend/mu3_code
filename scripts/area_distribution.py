@@ -21,17 +21,12 @@ import time
 
 import numpy as np
 
-from mu3 import cell_area, cells_at_res
+from mu3 import cell_area, cells_at_res, is_pentagon
 
 
 MAX_RES = 5
 
 SPHERE = 4.0 * math.pi
-
-
-def is_pentagon(cell: tuple) -> bool:
-    """Pentagon-center cells have all-zero child digits."""
-    return all(d == 0 for d in cell[1:])
 
 
 def main() -> None:

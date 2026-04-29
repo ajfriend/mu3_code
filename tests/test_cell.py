@@ -9,6 +9,7 @@ from mu3 import (
     cell_center,
     cells_at_res,
     icosahedron,
+    is_pentagon,
     is_valid_cell,
 )
 
@@ -301,3 +302,36 @@ def test_cell_area_returns_python_float():
     # callers shouldn't have to deal with numpy scalars leaking out
     assert isinstance(cell_area((0,)), float)
     assert isinstance(cell_area((0, 3, 5, 2)), float)
+
+
+# ---------- is_pentagon ----------
+
+
+def test_is_pentagon_res0_all_true():
+    for b in range(12):
+        assert is_pentagon((b,))
+
+
+def test_is_pentagon_all_zero_digits_at_each_res():
+    for res in range(1, 4):
+        for b in range(12):
+            assert is_pentagon((b, *([0] * res)))
+
+
+def test_is_pentagon_false_for_hex_cells():
+    assert not is_pentagon((0, 2))
+    assert not is_pentagon((0, 0, 3))
+    assert not is_pentagon((0, 2, 5, 4))
+    assert not is_pentagon((0, 0, 0, 1))   # phantom-form, but still has nonzero
+
+
+def test_is_pentagon_count_matches_expected_at_each_res():
+    """Exactly 12 pentagon-center cells (one per base) at every resolution."""
+    for res in range(0, 4):
+        n = sum(1 for c in cells_at_res(res) if is_pentagon(c))
+        assert n == 12, (res, n)
+
+
+def test_is_pentagon_invalid_input_returns_false():
+    assert is_pentagon(None) is False
+    assert is_pentagon(42) is False  # int, no [1:] slicing

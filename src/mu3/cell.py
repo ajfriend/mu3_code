@@ -200,6 +200,23 @@ def is_valid_cell(cell) -> bool:
     return True
 
 
+def is_pentagon(cell) -> bool:
+    """True iff ``cell`` is a pentagon-center cell.
+
+    A pentagon-center cell has all-zero child digits -- its 3D position
+    coincides with the base pentagon's icosa vertex. At res 0 every
+    cell ``(b,)`` is a pentagon center; at res N the 12 pentagon
+    centers are the paths ``(b, 0, 0, ..., 0)``.
+
+    Does not validate the cell -- call :func:`is_valid_cell` separately
+    if needed. Returns ``False`` for non-sequence inputs.
+    """
+    try:
+        return all(d == 0 for d in cell[1:])
+    except TypeError:
+        return False
+
+
 def cell_center(cell: Sequence[int]) -> np.ndarray:
     """Unit 3-vector on the sphere for ``cell = (base, d_1, ..., d_N)``."""
     base, digits = cell[0], cell[1:]
