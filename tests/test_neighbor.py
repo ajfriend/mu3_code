@@ -73,13 +73,16 @@ def _check_neighbors_ccw(cell):
     proj = []
     for nb in cell_ring1(cell):
         n = cell_center(nb)
-        proj.append(n - (n @ c) * c)
+        n = n - (n @ c) * c
+        n = n/np.linalg.norm(n)
+
+        proj.append(n)
 
     n = len(proj)
     for i in range(n):
         a = proj[i]
         b = proj[(i + 1) % n]
-        assert np.cross(a, b) @ c > 0, (cell, i, cell_ring1(cell)[i], cell_ring1(cell)[(i + 1) % n])
+        assert np.cross(a, b) @ c > 0
 
 
 def test_ring1_ccw_order():
