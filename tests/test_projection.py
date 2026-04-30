@@ -7,6 +7,7 @@ from mu3.projection import (
     AlphaOnlySlerp,
     AlphaSlerp,
     IVEAProjection,
+    KarcherProjection,
     LambertBaryProjection,
 )
 
@@ -16,6 +17,7 @@ PROJECTION_CLASSES = [
     IVEAProjection,
     AlphaIVEAProjection,  # at default α=1.0 it's exactly IVEA
     LambertBaryProjection,
+    KarcherProjection,
 ]
 
 

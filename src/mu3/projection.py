@@ -770,3 +770,86 @@ class LambertBaryProjection(IVEAProjection):
         sol = self._lam_M_inv @ (P_L - self._VL[0])
         b1, b2 = float(sol[0]), float(sol[1])
         return np.array([1.0 - b1 - b2, b1, b2])
+
+
+def _log_sphere(base: np.ndarray, point: np.ndarray) -> np.ndarray:
+    """Tangent vector at ``base`` pointing toward ``point``,
+    magnitude = arc length on the unit sphere."""
+    d = max(-1.0, min(1.0, float(base @ point)))
+    angle = math.acos(d)
+    if angle < 1e-15:
+        return np.zeros(3)
+    direction = point - d * base
+    n = float(np.linalg.norm(direction))
+    if n < 1e-15:
+        return np.zeros(3)
+    return (angle / n) * direction
+
+
+def _exp_sphere(base: np.ndarray, tangent: np.ndarray) -> np.ndarray:
+    """Geodesic from ``base`` in direction ``tangent`` (magnitude = arc length)."""
+    r = float(np.linalg.norm(tangent))
+    if r < 1e-15:
+        return base.copy()
+    return math.cos(r) * base + (math.sin(r) / r) * tangent
+
+
+class KarcherProjection(IVEAProjection):
+    """Smooth approximate-equal-area via the Riemannian center of mass.
+
+    Result point ``p`` is the geodesic mean defined implicitly by
+    ``Σ βᵢ · log_p(Vᵢ) = 0``. Edge-on-arc preservation is automatic
+    (β with one zero coordinate puts ``p`` on the corresponding
+    great-circle arc, parameterized as a slerp). Zero parameters;
+    geometrically canonical.
+
+    Forward is iterative (Picard fixed-point, ~5 iters typical).
+    Inverse is **closed-form** via a 3×3 linear solve in the tangent
+    plane at ``p`` — the opposite iteration profile from AlphaSlerp.
+    Useful for DGGS-style inverse-heavy workloads.
+
+    Inherits from IVEAProjection only for the equilateral-face guard
+    and centroid/mids precomputation; the projection math is independent.
+    """
+
+    def __init__(self, v0, v1, v2, max_iter: int = 10,
+                 tol_step: float = 1e-12) -> None:
+        super().__init__(v0, v1, v2)
+        self._max_iter = max_iter
+        self._tol_step = tol_step
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        # Warm start: normalize the linear combo (gnomonic-ish).
+        p = b[0] * self.V[0] + b[1] * self.V[1] + b[2] * self.V[2]
+        n = float(np.linalg.norm(p))
+        p = self.centroid.copy() if n < 1e-15 else p / n
+        for _ in range(self._max_iter):
+            tangent = (b[0] * _log_sphere(p, self.V[0])
+                     + b[1] * _log_sphere(p, self.V[1])
+                     + b[2] * _log_sphere(p, self.V[2]))
+            if float(np.linalg.norm(tangent)) < self._tol_step:
+                return p
+            p = _exp_sphere(p, tangent)
+            p = p / float(np.linalg.norm(p))
+        return p
+
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        for i in range(3):
+            if float(p @ self.V[i]) > 1.0 - 1e-15:
+                out = np.zeros(3); out[i] = 1.0; return out
+        logs = [_log_sphere(p, self.V[i]) for i in range(3)]
+        # 2D basis in the tangent plane at p
+        u = np.array([1.0, 0.0, 0.0])
+        if abs(float(p @ u)) > 0.9:
+            u = np.array([0.0, 1.0, 0.0])
+        e1 = u - float(u @ p) * p
+        e1 = e1 / float(np.linalg.norm(e1))
+        e2 = np.cross(p, e1)
+        A = np.array([
+            [float(logs[0] @ e1), float(logs[1] @ e1), float(logs[2] @ e1)],
+            [float(logs[0] @ e2), float(logs[1] @ e2), float(logs[2] @ e2)],
+            [1.0, 1.0, 1.0],
+        ])
+        return np.linalg.solve(A, np.array([0.0, 0.0, 1.0]))

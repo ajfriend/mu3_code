@@ -25,6 +25,7 @@ from mu3.projection import (
     AlphaSlerp,
     Gnomonic,
     IVEAProjection,
+    KarcherProjection,
     LambertBaryProjection,
 )
 
@@ -104,7 +105,8 @@ def main():
         ("IVEA (Slice & Dice)",        IVEAProjection),
         ("AlphaSlerp (rich, default)", AlphaSlerp),
         ("AlphaOnlySlerp",             AlphaOnlySlerp),
-        ("LambertBary",                LambertBaryProjection),
+        ("Karcher (Riemannian mean)",  KarcherProjection),
+        ("LambertBary (DEAD END)",     LambertBaryProjection),
     ]
     print(f"{'projection':<32s} {'n':>4s} {'area_r':>7s} {'edge_r':>7s} "
           f"{'shape_mx':>9s} {'sh_p90':>7s} {'sh_p50':>7s} "
