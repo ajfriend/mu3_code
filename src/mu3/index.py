@@ -14,7 +14,6 @@ from .cell import (
     _sphere_to_flat,
     cell_boundary,
     cell_center,
-    is_pentagon,
 )
 from .face_lattice import get_rot, rotate_digit_ccw, round_ei
 from .neighbor import _has_leading_zero_d1, _step_to_cell, cell_ring1
@@ -97,8 +96,7 @@ def vec_to_cell_raw(p3d: np.ndarray, res: int) -> tuple:
     1. argmax over icosa vertices = base pentagon.
     2. ``_sphere_to_flat`` inverse-projects p3d to a flat z in base's frame.
     3. Snap z to the nearest lattice point at resolution ``res`` and run
-       ``_step_to_cell`` to extract the digit string. We stay in base's
-       frame regardless.
+       ``_step_to_cell`` to extract the digit string.
     4. If the result has leading-d=1 (z_C lies in base's deleted wedge --
        valid at higher res via the Gosper wiggle, see Section 4 of
        reports/surface-mediated-atlas.md), pick the rotation twin
@@ -113,9 +111,6 @@ def vec_to_cell_raw(p3d: np.ndarray, res: int) -> tuple:
     z_snapped = round_ei(z * rot_N) / rot_N
     candidate = _step_to_cell(z_snapped, base, res)
     if _has_leading_zero_d1(candidate):
-        # The phantom corner is shared by two real cells (CCW and CW
-        # digit-rotation twins). Pick the twin geographically closer to
-        # ``p3d`` -- same disambiguation cell_ring1 uses for ring-1 walks.
         ccw = (candidate[0],
                *(rotate_digit_ccw(d, 1) for d in candidate[1:]))
         cw = (candidate[0],
@@ -129,57 +124,30 @@ def vec_to_cell_raw(p3d: np.ndarray, res: int) -> tuple:
 def vec_to_cell_polished(p3d: np.ndarray, res: int) -> tuple:
     """:func:`vec_to_cell_raw` + single-hop spherical polish.
 
-    Stays in the argmax-chosen pentagon's frame for the raw candidate --
-    no cross-pentagon transformations in the forward step. Polish handles
-    the cross-edge case in at most one ring-1 hop: the forward-projection
-    error is bounded by less than half a cell-edge length, so the
-    candidate is always either correct or shares an edge with the correct
-    cell.
-
-    At res 0 the raw cell is already correct (it's the spherical Voronoi
-    region of an icosa vertex), so polish is a no-op.
+    The 1-ring around the raw candidate is sufficient buffer: forward-
+    projection error is bounded by less than half a cell-edge length, so
+    the candidate is always either correct or shares an edge with the
+    correct cell. At res 0 polish is a no-op (raw is already the
+    spherical Voronoi region of an icosa vertex).
     """
     candidate = vec_to_cell_raw(p3d, res)
     if res == 0:
         return candidate
-    return _polish(p3d, candidate, res)
+    return _polish(p3d, candidate)
 
 
-def _polish(p3d: np.ndarray, cell: tuple, res: int) -> tuple:
-    """Single-hop polish. If p3d is inside ``cell``'s spherical boundary,
-    returns ``cell`` unchanged. Otherwise returns the ring-1 neighbor
-    across the violated edge.
+def _polish(p3d: np.ndarray, cell: tuple) -> tuple:
+    """If ``p3d`` is inside ``cell``'s spherical boundary, returns ``cell``
+    unchanged. Otherwise returns the ring-1 neighbor across the violated
+    edge.
 
-    The 1-ring around the initial candidate provides sufficient buffer
-    that 2-hop polish is never needed: the forward-projection error is
-    bounded by less than half a cell-edge length, so the candidate is
-    always either correct or shares an edge with the correct cell.
+    Edge index ``k`` and ring-1 index align directly: walk-direction
+    ``D = k + 1`` (hex) or ``k + 2`` (pentagon), and ``cell_ring1``
+    returns the ring indexed by ``D - 1`` (hex) or ``D - 2`` (pentagon),
+    so both cases collapse to ``cell_ring1(cell)[k]``.
     """
     boundary = cell_boundary(cell, closed=False)
     k = _polish_boundary(p3d, boundary)
     if k is None:
         return cell
-    n_edges = len(boundary)
-    if n_edges == 6:
-        D = k + 1
-    elif n_edges == 5:
-        D = k + 2
-    else:
-        raise RuntimeError(
-            f"_polish: unexpected boundary length {n_edges} for cell {cell}"
-        )
-    return _neighbor_in_direction(cell, D)
-
-
-def _neighbor_in_direction(cell: tuple, D: int) -> tuple:
-    """Return the ring-1 neighbor of ``cell`` in walk-direction ``D ∈ {1..6}``.
-
-    Indexes into ``cell_ring1``'s output, which is ordered D=1..6 with
-    primary-direction (D=6) last. For pentagon-center cells (5 neighbors),
-    D=1 is absent; valid D ∈ {2..6} index into positions 0..4.
-    """
-    ring = cell_ring1(cell)
-    if is_pentagon(cell):
-        # ring is in CCW order matching D=2..6.
-        return ring[D - 2]
-    return ring[D - 1]
+    return cell_ring1(cell)[k]
