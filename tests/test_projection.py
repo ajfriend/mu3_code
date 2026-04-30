@@ -7,6 +7,7 @@ from mu3.projection import (
     AlphaOnlySlerp,
     AlphaSlerp,
     IVEAProjection,
+    KarcherPolyProjection,
     KarcherProjection,
     LambertBaryProjection,
     TunedKarcherProjection,
@@ -20,6 +21,7 @@ PROJECTION_CLASSES = [
     LambertBaryProjection,
     KarcherProjection,
     TunedKarcherProjection,  # at default (η=0.121, κ=0.170)
+    KarcherPolyProjection,   # at default kappas=() it's exactly Karcher
 ]
 
 
@@ -185,3 +187,41 @@ def test_tuned_karcher_roundtrip_off_default(eta, kappa):
             assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
             b_back = proj.to_bary(p)
             assert np.allclose(b_back, b, atol=1e-9), (face, eta, kappa, b, b_back)
+
+
+def test_karcher_poly_at_empty_kappas_is_karcher():
+    """At kappas=(), the polynomial correction is identically zero;
+    output must match plain Karcher exactly."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(7)
+    for face in range(20):
+        karcher = KarcherProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]])
+        poly = KarcherPolyProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                      kappas=())
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p_k = karcher.to_sphere(b)
+            p_p = poly.to_sphere(b)
+            assert np.allclose(p_k, p_p, atol=1e-12), (face, b)
+            assert np.allclose(karcher.to_bary(p_k), poly.to_bary(p_p), atol=1e-11)
+
+
+@pytest.mark.parametrize("kappas", [
+    (0.1,),                # κ₁ only — like TunedKarcher's κ
+    (0.0, 0.1),            # κ₂ only
+    (-0.2, 0.15),          # both signs
+    (0.05, -0.05, 0.02),   # cubic too
+])
+def test_karcher_poly_roundtrip_off_default(kappas):
+    """Forward-then-inverse must recover β at non-trivial polynomial corrections."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(int(sum(abs(k) * 100 for k in kappas)) + 1)
+    for face in range(20):
+        proj = KarcherPolyProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                      kappas=kappas)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p = proj.to_sphere(b)
+            assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
+            b_back = proj.to_bary(p)
+            assert np.allclose(b_back, b, atol=1e-9), (face, kappas, b, b_back)

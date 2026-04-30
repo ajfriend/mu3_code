@@ -946,3 +946,92 @@ class TunedKarcherProjection(KarcherProjection):
                 return beta_new
             beta = beta_new
         return beta
+
+
+class KarcherPolyProjection(KarcherProjection):
+    """Karcher with arbitrary-order per-i polynomial weight correction.
+
+    Result point ``p`` defined implicitly by ``Σ wᵢ(β) · log_p(Vᵢ) = 0``
+    with::
+
+        Sᵢ(β) = Σ_n κ_n · (βᵢ − 1/3)^n     for n = 1, 2, …, len(kappas)
+        wᵢ(β) = βᵢ · (1 + P · Sᵢ)
+        P     = β₀ · β₁ · β₂                ← edge-vanishing factor
+
+    On edges (P = 0), wᵢ collapses to βᵢ; Karcher reduces to slerp;
+    edge-on-arc preserved automatically.
+
+    Compared to ``TunedKarcherProjection``: this drops the structurally
+    degenerate η term and adds higher-order per-i polynomials. ``kappas
+    = (κ₁,)`` reproduces TunedKarcher's κ-only family. ``kappas =
+    (κ₁, κ₂)`` adds a quadratic dial — the genuinely new degree of
+    freedom for Karcher's variable-base construction. Default
+    ``kappas = ()`` recovers plain Karcher exactly.
+    """
+
+    def __init__(self, v0, v1, v2,
+                 kappas=(),
+                 max_iter: int = 10, tol_step: float = 1e-12) -> None:
+        super().__init__(v0, v1, v2, max_iter=max_iter, tol_step=tol_step)
+        self.kappas = tuple(float(k) for k in kappas)
+
+    def _S(self, beta: np.ndarray) -> np.ndarray:
+        """Σ_n κ_n · (βᵢ − 1/3)^n for n=1..len(kappas)."""
+        b = np.asarray(beta, dtype=float)
+        delta = b - 1.0 / 3.0
+        S = np.zeros(3)
+        d_pow = np.ones(3)
+        for k in self.kappas:
+            d_pow = d_pow * delta  # δ^n at iteration n
+            S = S + k * d_pow
+        return S
+
+    def _adjusted_weights(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        P = float(b[0] * b[1] * b[2])
+        return b * (1.0 + P * self._S(b))
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        w = self._adjusted_weights(b)
+        p = w[0] * self.V[0] + w[1] * self.V[1] + w[2] * self.V[2]
+        n = float(np.linalg.norm(p))
+        p = self.centroid.copy() if n < 1e-15 else p / n
+        for _ in range(self._max_iter):
+            tangent = (w[0] * _log_sphere(p, self.V[0])
+                     + w[1] * _log_sphere(p, self.V[1])
+                     + w[2] * _log_sphere(p, self.V[2]))
+            if float(np.linalg.norm(tangent)) < self._tol_step:
+                return p
+            p = _exp_sphere(p, tangent)
+            p = p / float(np.linalg.norm(p))
+        return p
+
+    def to_bary(self, p: np.ndarray, max_outer: int = 10,
+                tol_outer: float = 1e-13) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        for i in range(3):
+            if float(p @ self.V[i]) > 1.0 - 1e-15:
+                out = np.zeros(3); out[i] = 1.0; return out
+        logs = [_log_sphere(p, self.V[i]) for i in range(3)]
+        u = np.array([1.0, 0.0, 0.0])
+        if abs(float(p @ u)) > 0.9:
+            u = np.array([0.0, 1.0, 0.0])
+        e1 = u - float(u @ p) * p
+        e1 = e1 / float(np.linalg.norm(e1))
+        e2 = np.cross(p, e1)
+        x = np.array([float(g @ e1) for g in logs])
+        y = np.array([float(g @ e2) for g in logs])
+        rhs = np.array([0.0, 0.0, 1.0])
+
+        beta = np.linalg.solve(np.array([x, y, np.ones(3)]), rhs)
+        for _ in range(max_outer):
+            P = float(beta[0] * beta[1] * beta[2])
+            S = self._S(beta)
+            c = 1.0 + P * S
+            A = np.array([c * x, c * y, np.ones(3)])
+            beta_new = np.linalg.solve(A, rhs)
+            if float(np.max(np.abs(beta_new - beta))) < tol_outer:
+                return beta_new
+            beta = beta_new
+        return beta
