@@ -20,7 +20,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mu3 import cell as _cell
 from mu3 import cell_area, cell_boundary, cells_at_res, is_pentagon
-from mu3.projection import AlphaOnlySlerp, AlphaSlerp, Gnomonic, IVEAProjection
+from mu3.projection import (
+    AlphaOnlySlerp,
+    AlphaSlerp,
+    Gnomonic,
+    IVEAProjection,
+    LambertBaryProjection,
+)
 
 
 @contextmanager
@@ -98,6 +104,7 @@ def main():
         ("IVEA (Slice & Dice)",        IVEAProjection),
         ("AlphaSlerp (rich, default)", AlphaSlerp),
         ("AlphaOnlySlerp",             AlphaOnlySlerp),
+        ("LambertBary",                LambertBaryProjection),
     ]
     print(f"{'projection':<32s} {'n':>4s} {'area_r':>7s} {'edge_r':>7s} "
           f"{'shape_mx':>9s} {'sh_p90':>7s} {'sh_p50':>7s} "

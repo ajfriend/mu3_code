@@ -693,3 +693,80 @@ class AlphaIVEAProjection(IVEAProjection):
         b_sub_w = self._subtri_to_bary(p, A, B, C)
         b_sub = self._unwarp(b_sub_w)
         return b_sub[0] * Pa + b_sub[1] * Pb + b_sub[2] * Pc
+
+
+class LambertBaryProjection(IVEAProjection):
+    """Smooth Lambert + planar-barycentric projection. **DEAD END** — kept
+    as a documented null result.
+
+    Map: face barycentric β → planar Lambert point (linear combination
+    of the Lambert images of the face vertices) → sphere via inverse
+    Lambert. C∞ smooth and fully closed-form, intended as a simplified
+    variant of "Schwarz-Christoffel + Lambert + radial correction"
+    (see todo/2026-04-30-projection-decision.md for context).
+
+    The simplification skips the Schwarz-Christoffel step. **This breaks
+    at the face boundary**: Lambert maps the spherical face edges to
+    *curved* lines in the plane, but linear barycentric draws *straight*
+    lines. Cells near corners are squeezed between the true (curved)
+    boundary and the straight-barycentric-line, producing severely
+    distorted cells. The distortion is bimodal: median cells are nearly
+    perfect (shape ≈ 1.02, ang ≈ 1°) but worst-case cells are
+    catastrophic (shape ≈ 3.5, area max/min ≈ 2.5, ang ≈ 32°).
+
+    Empirical confirmation that the Schwarz-Christoffel step in the
+    Option B construction is not optional. Either implement the full SC
+    correction (substantial — needs complex hypergeometrics, Newton in
+    complex space, boundary handling) or accept that AlphaSlerp already
+    occupies the smooth + closed-form + approximate-equal-area corner.
+
+    Class kept in the codebase so the test suite and distortion probe
+    document the failure mode for future readers.
+    """
+
+    def __init__(self, v0, v1, v2) -> None:
+        super().__init__(v0, v1, v2)
+        c = self.centroid
+        e1_raw = self.V[0] - float(self.V[0] @ c) * c
+        self._lam_e1 = e1_raw / np.linalg.norm(e1_raw)
+        self._lam_e2 = np.cross(c, self._lam_e1)
+        self._VL = np.array([self._sphere_to_lambert(self.V[i]) for i in range(3)])
+        M = np.column_stack([self._VL[1] - self._VL[0], self._VL[2] - self._VL[0]])
+        self._lam_M_inv = np.linalg.inv(M)
+
+    def _sphere_to_lambert(self, p: np.ndarray) -> np.ndarray:
+        """Sphere unit vector -> 2D Lambert chord coords. r = 2·sin(angular/2)."""
+        c = self.centroid
+        cos_d = max(-1.0, min(1.0, float(p @ c)))
+        r = math.sqrt(max(0.0, 2.0 * (1.0 - cos_d)))
+        t = p - cos_d * c
+        n = float(np.linalg.norm(t))
+        if n < 1e-15:
+            return np.array([0.0, 0.0])
+        t_hat = t / n
+        return np.array([float(t_hat @ self._lam_e1) * r,
+                         float(t_hat @ self._lam_e2) * r])
+
+    def _lambert_to_sphere(self, P_L: np.ndarray) -> np.ndarray:
+        c = self.centroid
+        x, y = float(P_L[0]), float(P_L[1])
+        r = math.sqrt(x * x + y * y)
+        if r < 1e-15:
+            return c.copy()
+        # r = 2·sin(angular/2) → cos(angular) = 1 − r²/2
+        cos_d = 1.0 - 0.5 * r * r
+        sin_d = math.sqrt(max(0.0, 1.0 - cos_d * cos_d))
+        t_hat = (x * self._lam_e1 + y * self._lam_e2) / r
+        return cos_d * c + sin_d * t_hat
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        P_L = b[0] * self._VL[0] + b[1] * self._VL[1] + b[2] * self._VL[2]
+        return self._lambert_to_sphere(P_L)
+
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        P_L = self._sphere_to_lambert(p)
+        sol = self._lam_M_inv @ (P_L - self._VL[0])
+        b1, b2 = float(sol[0]), float(sol[1])
+        return np.array([1.0 - b1 - b2, b1, b2])
