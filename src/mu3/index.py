@@ -9,6 +9,15 @@ lattice (see ``mu3.face_lattice`` and ``mu3.cell``).
 import numpy as np
 
 from . import icosahedron
+from .cell import (
+    _polish_boundary,
+    _sphere_to_flat,
+    cell_boundary,
+    cell_center,
+    is_pentagon,
+)
+from .face_lattice import get_rot, rotate_digit_ccw, round_ei
+from .neighbor import _has_leading_zero_d1, _step_to_cell, cell_ring1
 
 
 def latlng_to_vec(lat_deg, lng_deg) -> np.ndarray:
@@ -19,17 +28,20 @@ def latlng_to_vec(lat_deg, lng_deg) -> np.ndarray:
     return np.stack([c * np.cos(lng), c * np.sin(lng), np.sin(lat)], axis=-1)
 
 
-def latlng_to_cell(lat_deg, lng_deg):
-    """Res-0 base pentagon cell id (0..11) for each input point.
+def latlng_to_cell(lat_deg, lng_deg, res: int = 0) -> tuple[int, ...]:
+    """Cell at the given resolution containing this lat/lng, as a tuple
+    ``(base, d_1, ..., d_res)``. Scalar inputs only.
 
-    Scalar inputs return a Python int; array inputs return an int64 ndarray
-    of the broadcast shape.
+    For batched res-0 lookups (the previous ndarray-returning shortcut),
+    use :func:`_latlng_to_cell_detailed` directly.
     """
     p = latlng_to_vec(lat_deg, lng_deg)
-    cell, _ = _latlng_to_cell_detailed(p)
-    if cell.shape == ():
-        return int(cell)
-    return cell
+    if p.ndim > 1:
+        raise NotImplementedError(
+            "batched latlng_to_cell not yet implemented; "
+            "use _latlng_to_cell_detailed for batched res-0 lookups"
+        )
+    return vec_to_cell(p, res)
 
 
 def _latlng_to_cell_detailed(p: np.ndarray):
@@ -37,7 +49,7 @@ def _latlng_to_cell_detailed(p: np.ndarray):
 
     The base pentagon for a point on the unit sphere is the icosa vertex
     closest to the point: the Voronoi cells of icosa vertices on the
-    sphere are precisely the dodecahedron faces. ``argmax(V @ p)`` gives
+    sphere are precisely the dodecahedron faces. ``argmax(V · p)`` gives
     that vertex directly.
 
     Polish is retained for parity with the previous behavior (and for
@@ -60,3 +72,114 @@ def _latlng_to_cell_detailed(p: np.ndarray):
         final[k] = pool[int(np.argmax(V[pool] @ flat[k]))]
 
     return final.reshape(shape), candidate.reshape(shape)
+
+
+def vec_to_cell(p3d: np.ndarray, res: int = 0) -> tuple:
+    """Scalar 3D unit vector -> canonical cell tuple at the given resolution.
+
+    Wrapper around :func:`vec_to_cell_polished`. This is the function you
+    want by default. ``latlng_to_cell`` is a thin wrapper over this.
+    """
+    return vec_to_cell_polished(p3d, res)
+
+
+def vec_to_cell_raw(p3d: np.ndarray, res: int) -> tuple:
+    """Forward pipeline only -- argmax base, snap to lattice, twin-disambiguate.
+    No spherical polish.
+
+    The returned cell is *geometrically close* to ``p3d`` but may not
+    contain it: it can be off by at most one ring-1 hop. Use
+    :func:`vec_to_cell_polished` (or :func:`vec_to_cell`) for the
+    contained-cell guarantee.
+
+    Steps:
+
+    1. argmax over icosa vertices = base pentagon.
+    2. ``_sphere_to_flat`` inverse-projects p3d to a flat z in base's frame.
+    3. Snap z to the nearest lattice point at resolution ``res`` and run
+       ``_step_to_cell`` to extract the digit string. We stay in base's
+       frame regardless.
+    4. If the result has leading-d=1 (z_C lies in base's deleted wedge --
+       valid at higher res via the Gosper wiggle, see Section 4 of
+       reports/surface-mediated-atlas.md), pick the rotation twin
+       (CCW or CW) geographically closer to ``p3d``.
+    """
+    V = icosahedron.vertices()
+    base = int(np.argmax(V @ p3d))
+    if res == 0:
+        return (base,)
+    z = _sphere_to_flat(p3d, base)
+    rot_N = get_rot(res)
+    z_snapped = round_ei(z * rot_N) / rot_N
+    candidate = _step_to_cell(z_snapped, base, res)
+    if _has_leading_zero_d1(candidate):
+        # The phantom corner is shared by two real cells (CCW and CW
+        # digit-rotation twins). Pick the twin geographically closer to
+        # ``p3d`` -- same disambiguation cell_ring1 uses for ring-1 walks.
+        ccw = (candidate[0],
+               *(rotate_digit_ccw(d, 1) for d in candidate[1:]))
+        cw = (candidate[0],
+              *(rotate_digit_ccw(d, 5) for d in candidate[1:]))
+        ccw_3d = cell_center(ccw)
+        cw_3d = cell_center(cw)
+        candidate = ccw if np.linalg.norm(ccw_3d - p3d) < np.linalg.norm(cw_3d - p3d) else cw
+    return candidate
+
+
+def vec_to_cell_polished(p3d: np.ndarray, res: int) -> tuple:
+    """:func:`vec_to_cell_raw` + single-hop spherical polish.
+
+    Stays in the argmax-chosen pentagon's frame for the raw candidate --
+    no cross-pentagon transformations in the forward step. Polish handles
+    the cross-edge case in at most one ring-1 hop: the forward-projection
+    error is bounded by less than half a cell-edge length, so the
+    candidate is always either correct or shares an edge with the correct
+    cell.
+
+    At res 0 the raw cell is already correct (it's the spherical Voronoi
+    region of an icosa vertex), so polish is a no-op.
+    """
+    candidate = vec_to_cell_raw(p3d, res)
+    if res == 0:
+        return candidate
+    return _polish(p3d, candidate, res)
+
+
+def _polish(p3d: np.ndarray, cell: tuple, res: int) -> tuple:
+    """Single-hop polish. If p3d is inside ``cell``'s spherical boundary,
+    returns ``cell`` unchanged. Otherwise returns the ring-1 neighbor
+    across the violated edge.
+
+    The 1-ring around the initial candidate provides sufficient buffer
+    that 2-hop polish is never needed: the forward-projection error is
+    bounded by less than half a cell-edge length, so the candidate is
+    always either correct or shares an edge with the correct cell.
+    """
+    boundary = cell_boundary(cell, closed=False)
+    k = _polish_boundary(p3d, boundary)
+    if k is None:
+        return cell
+    n_edges = len(boundary)
+    if n_edges == 6:
+        D = k + 1
+    elif n_edges == 5:
+        D = k + 2
+    else:
+        raise RuntimeError(
+            f"_polish: unexpected boundary length {n_edges} for cell {cell}"
+        )
+    return _neighbor_in_direction(cell, D)
+
+
+def _neighbor_in_direction(cell: tuple, D: int) -> tuple:
+    """Return the ring-1 neighbor of ``cell`` in walk-direction ``D ∈ {1..6}``.
+
+    Indexes into ``cell_ring1``'s output, which is ordered D=1..6 with
+    primary-direction (D=6) last. For pentagon-center cells (5 neighbors),
+    D=1 is absent; valid D ∈ {2..6} index into positions 0..4.
+    """
+    ring = cell_ring1(cell)
+    if is_pentagon(cell):
+        # ring is in CCW order matching D=2..6.
+        return ring[D - 2]
+    return ring[D - 1]

@@ -121,6 +121,58 @@ def _project(z: complex, base: int) -> np.ndarray:
     return _alpha_slerp(base, d).forward_barycentric(beta)
 
 
+def _z_from_wedge_barycentric(beta: np.ndarray, d: int) -> complex:
+    """Inverse of :func:`_wedge_barycentric`: barycentric `(b_p, b_cw, b_ccw)`
+    on digit ``d``'s flat 60° wedge → Eisenstein ``z``."""
+    b_cw = float(beta[1])
+    b_ccw = float(beta[2])
+    z_aligned = complex(b_cw + 0.5 * b_ccw, b_ccw * math.sqrt(3.0) / 2.0)
+    return z_aligned / _wedge_align_rot(d)
+
+
+def _sphere_to_flat(p3d: np.ndarray, base: int) -> complex:
+    """Inverse of :func:`_project`: 3D unit vector inside ``base``'s spherical
+    territory → Eisenstein ``z`` in ``base``'s flat frame.
+
+    Identifies which of the 5 incident icosa triangles around ``base``
+    contains ``p3d`` by trying each ``d ∈ {2..6}`` and accepting the one
+    whose barycentric weights are all non-negative (within tolerance).
+    Then runs :meth:`AlphaSlerp.inverse_barycentric` on that triangle and
+    converts the barycentric back to ``z`` in d's flat wedge.
+
+    The returned ``z`` is in canonical post-stitch form (angle in
+    ``[60°, 360°)`` at any non-degenerate point); the deleted wedge
+    ``[0°, 60°)`` is unreachable here by construction.
+    """
+    eps = 1e-9
+    best_d = -1
+    best_beta: np.ndarray | None = None
+    best_min = -float("inf")
+    for d in range(2, 7):
+        slerp = _alpha_slerp(base, d)
+        try:
+            beta = slerp.inverse_barycentric(p3d)
+        except RuntimeError:
+            continue
+        m = float(beta.min())
+        if m >= -eps:
+            return _z_from_wedge_barycentric(beta, d)
+        if m > best_min:
+            best_min = m
+            best_d = d
+            best_beta = beta
+    # No triangle reported strictly-non-negative barycentric. This happens
+    # for points exactly on a shared edge between two triangles, where
+    # numerical noise pushes one barycentric slightly negative. Return the
+    # best available — caller's polish step will catch any sign error.
+    if best_d < 0 or best_beta is None:
+        raise RuntimeError(
+            f"_sphere_to_flat: no incident triangle of base {base} "
+            f"contains {p3d}"
+        )
+    return _z_from_wedge_barycentric(best_beta, best_d)
+
+
 def _eisenstein_center(digits: Sequence[int]) -> complex:
     """Pentagon-Eisenstein position ``z`` for a child-digit sequence."""
     z = 0j
