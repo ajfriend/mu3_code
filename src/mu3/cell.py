@@ -18,7 +18,8 @@ Pipeline (pentagon-centric; same for cell centers and boundary corners):
    face-digits ``d ∈ {2, 3, 4, 5, 6}``.
 4. Read off barycentric weights ``(b_p, b_cw, b_ccw)`` for the flat
    wedge with corners ``(0, exp(i·(d-1)·60°), exp(i·d·60°))``.
-5. Hand those weights to ``AlphaSlerp(V[p], V[n_cw], V[n_ccw])`` where
+5. Hand those weights to the active :class:`Projection` instantiated on
+   the spherical triangle ``(V[p], V[n_cw], V[n_ccw])`` where
    ``n = vertex_neighbors[p]`` and ``n_cw = n[d-2]``,
    ``n_ccw = n[(d-1) % 5]``.
 
@@ -38,7 +39,9 @@ import numpy as np
 
 from . import icosahedron
 from .face_lattice import digit_offset, get_rot, s3, units
-from .projection import AlphaSlerp
+from .projection import AlphaSlerp, Projection
+
+_PROJECTION_CLS: type[Projection] = AlphaSlerp
 
 # +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
 _ROT60 = cmath.exp(1j * math.pi / 3)
@@ -91,7 +94,8 @@ def _wedge_barycentric(z: complex, d: int) -> np.ndarray:
     ``(0, exp(i·(d-1)·60°), exp(i·d·60°))``.
 
     Barycentric is affine-invariant, so the same weights map directly onto
-    the 3D triangle ``(V[p], V[n_cw], V[n_ccw])`` under AlphaSlerp.
+    the 3D triangle ``(V[p], V[n_cw], V[n_ccw])`` under the active
+    :class:`Projection`.
     """
     z_aligned = z * _wedge_align_rot(d)
     b_ccw = 2.0 * z_aligned.imag * _INV_SQRT3
@@ -101,24 +105,24 @@ def _wedge_barycentric(z: complex, d: int) -> np.ndarray:
 
 
 @lru_cache(maxsize=None)
-def _alpha_slerp(p: int, d: int) -> AlphaSlerp:
-    """AlphaSlerp on the spherical triangle ``(V[p], V[n_cw], V[n_ccw])``,
-    where ``n = vertex_neighbors[p]``, ``n_cw = n[d-2]``,
-    ``n_ccw = n[(d-1) % 5]``. 12 × 5 = 60 cached entries.
+def _projection(p: int, d: int) -> Projection:
+    """Active :class:`Projection` on the spherical triangle
+    ``(V[p], V[n_cw], V[n_ccw])``, where ``n = vertex_neighbors[p]``,
+    ``n_cw = n[d-2]``, ``n_ccw = n[(d-1) % 5]``. 12 × 5 = 60 cached entries.
     """
     V = icosahedron.vertices()
     n = icosahedron.vertex_neighbors()[p]
-    return AlphaSlerp(V[p], V[n[d - 2]], V[n[(d - 1) % 5]])
+    return _PROJECTION_CLS(V[p], V[n[d - 2]], V[n[(d - 1) % 5]])
 
 
 def _project(z: complex, base: int) -> np.ndarray:
-    """Eisenstein → stitch → wedge barycentric → α-slerp → sphere."""
+    """Eisenstein → stitch → wedge barycentric → projection → sphere."""
     if z == 0j:
         return icosahedron.vertices()[base].copy()
     z_s = _stitch(z)
     d = _classify_stitched(z_s)
     beta = _wedge_barycentric(z_s, d)
-    return _alpha_slerp(base, d).forward_barycentric(beta)
+    return _projection(base, d).to_sphere(beta)
 
 
 def _z_from_wedge_barycentric(beta: np.ndarray, d: int) -> complex:
@@ -137,8 +141,8 @@ def _sphere_to_flat(p3d: np.ndarray, base: int) -> complex:
     Identifies which of the 5 incident icosa triangles around ``base``
     contains ``p3d`` by trying each ``d ∈ {2..6}`` and accepting the one
     whose barycentric weights are all non-negative (within tolerance).
-    Then runs :meth:`AlphaSlerp.inverse_barycentric` on that triangle and
-    converts the barycentric back to ``z`` in d's flat wedge.
+    Then runs the active :class:`Projection`'s ``to_bary`` on that
+    triangle and converts the barycentric back to ``z`` in d's flat wedge.
 
     The returned ``z`` is in canonical post-stitch form (angle in
     ``[60°, 360°)`` at any non-degenerate point); the deleted wedge
@@ -149,9 +153,9 @@ def _sphere_to_flat(p3d: np.ndarray, base: int) -> complex:
     best_beta: np.ndarray | None = None
     best_min = -float("inf")
     for d in range(2, 7):
-        slerp = _alpha_slerp(base, d)
+        proj = _projection(base, d)
         try:
-            beta = slerp.inverse_barycentric(p3d)
+            beta = proj.to_bary(p3d)
         except RuntimeError:
             continue
         m = float(beta.min())

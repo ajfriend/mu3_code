@@ -17,9 +17,9 @@ def test_roundtrip_random_interior(seed):
     rng = np.random.default_rng(seed)
     betas = rng.dirichlet([2.0, 2.0, 2.0], size=200)
     for b in betas:
-        p = slerp.forward_barycentric(b)
+        p = slerp.to_sphere(b)
         assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
-        b_back = slerp.inverse_barycentric(p)
+        b_back = slerp.to_bary(p)
         assert np.allclose(b_back, b, atol=1e-10)
 
 
@@ -30,10 +30,10 @@ def test_roundtrip_random_interior(seed):
 ])
 def test_corners_are_fixed_points(corner):
     slerp = _slerp_for_face(0)
-    p = slerp.forward_barycentric(corner)
+    p = slerp.to_sphere(corner)
     # Forward at a corner must land on the corresponding face vertex
     assert np.allclose(p, slerp.V[int(np.argmax(corner))], atol=1e-14)
-    b_back = slerp.inverse_barycentric(p)
+    b_back = slerp.to_bary(p)
     assert np.allclose(b_back, corner, atol=1e-12)
 
 
@@ -44,16 +44,16 @@ def test_corners_are_fixed_points(corner):
 ])
 def test_edge_midpoints_roundtrip(beta):
     slerp = _slerp_for_face(0)
-    p = slerp.forward_barycentric(beta)
-    b_back = slerp.inverse_barycentric(p)
+    p = slerp.to_sphere(beta)
+    b_back = slerp.to_bary(p)
     assert np.allclose(b_back, beta, atol=1e-10)
 
 
 def test_centroid_roundtrip():
     slerp = _slerp_for_face(0)
     beta = np.array([1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0])
-    p = slerp.forward_barycentric(beta)
-    b_back = slerp.inverse_barycentric(p)
+    p = slerp.to_sphere(beta)
+    b_back = slerp.to_bary(p)
     assert np.allclose(b_back, beta, atol=1e-12)
 
 
@@ -63,6 +63,6 @@ def test_per_face_roundtrip(face):
     rng = np.random.default_rng(1000 + face)
     betas = rng.dirichlet([2.0, 2.0, 2.0], size=20)
     for b in betas:
-        p = slerp.forward_barycentric(b)
-        b_back = slerp.inverse_barycentric(p)
+        p = slerp.to_sphere(b)
+        b_back = slerp.to_bary(p)
         assert np.allclose(b_back, b, atol=1e-10)

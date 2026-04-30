@@ -1,6 +1,6 @@
 """Benchmark candidate inversion methods for AlphaSlerp.
 
-Forward map is in ``src/mu3/projection.py`` (``AlphaSlerp.forward_barycentric``).
+Forward map is in ``src/mu3/projection.py`` (``AlphaSlerp.to_sphere``).
 The inverse maps a unit sphere point ``q`` on a face back to its barycentric
 ``β`` on that face. This script compares five candidate solvers on three
 strata (interior / edge-heavy / corner-heavy) and reports iteration counts,
@@ -65,7 +65,7 @@ def make_face_geom(face_idx: int) -> FaceGeom:
 
 
 def forward(fg: FaceGeom, beta: np.ndarray) -> np.ndarray:
-    return fg.slerp.forward_barycentric(beta)
+    return fg.slerp.to_sphere(beta)
 
 
 def residual_2d(fg: FaceGeom, beta: np.ndarray, q: np.ndarray) -> np.ndarray:

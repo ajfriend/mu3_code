@@ -38,7 +38,7 @@ def make_alpha_slerp(alpha, eta, kappa):
 
 
 # A custom forward that adds optional 4th/5th params (lam, mu) on top
-# of the 3-param ansatz. Identical to AlphaSlerp.forward_barycentric
+# of the 3-param ansatz. Identical to AlphaSlerp.to_sphere
 # when lam = mu = 0.
 def forward_extended(alpha, eta, kappa, lam, mu, beta):
     omega = math.acos(np.clip(np.dot(v0, v1), -1.0, 1.0))

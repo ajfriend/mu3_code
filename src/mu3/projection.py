@@ -1,73 +1,99 @@
 """Face <-> sphere projections.
 
-A :class:`Projection` maps between points on a single icosahedron face
-(planar, centered at the origin) and points on the unit sphere. The
-interface is kept minimal so alternative maps — α-slerp, D_3-corrected,
-equal-area tweaks — can be dropped in without touching the indexing layer.
+A :class:`Projection` maps between barycentric coordinates on a single
+spherical triangle ``(V0, V1, V2)`` and points on the unit sphere. The
+triangle is bound at construction; the interface is barycentric in
+both directions so alternative maps — α-slerp, gnomonic, Snyder ISEA,
+D₃-corrected, equal-area tweaks — can be dropped in without touching
+the indexing layer.
 """
 
 import math
+from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
 
 
 class Projection(Protocol):
-    """Swappable face/sphere projection.
+    """Swappable spherical-triangle / barycentric projection.
 
-    Implementations take the face-center unit vector ``center`` (and, if
-    needed, an orientation — see :class:`Gnomonic`) and expose ``forward``
-    and ``inverse`` methods. Inputs and outputs are plain ``numpy`` arrays
-    with a trailing axis of length 2 (planar) or 3 (sphere).
+    Implementations take three unit 3-vectors ``(V0, V1, V2)`` (CCW
+    around the triangle) and expose ``to_sphere`` / ``to_bary``. Both
+    directions consume and emit plain ``numpy`` arrays of shape ``(3,)``
+    — barycentric ``β = (β0, β1, β2)`` summing to 1, or unit 3-vectors.
     """
 
-    def forward(self, xy: np.ndarray) -> np.ndarray:
-        """Planar face coordinates -> unit-sphere points (..., 3)."""
+    def __init__(self, v0, v1, v2) -> None: ...
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        """Barycentric β -> unit-sphere point."""
         ...
 
-    def inverse(self, p: np.ndarray) -> np.ndarray:
-        """Unit-sphere points -> planar face coordinates (..., 2)."""
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
+        """Unit-sphere point -> barycentric β on (V0, V1, V2)."""
         ...
+
+
+@dataclass(frozen=True, eq=False)
+class _TriGeom:
+    """Cached per-triangle geometry shared across projections."""
+    V: np.ndarray   # (3, 3) stacked vertices
+    e1: np.ndarray  # V1 − V0
+    e2: np.ndarray  # V2 − V0
+    n: np.ndarray   # outward unit normal
+    g11: float      # gram matrix entries: e_i · e_j
+    g12: float
+    g22: float
+    det_g: float
+
+
+def _triangle_geom(v0, v1, v2) -> _TriGeom:
+    V = np.stack([np.asarray(v, dtype=float) for v in (v0, v1, v2)], axis=0)
+    e1 = V[1] - V[0]
+    e2 = V[2] - V[0]
+    n_raw = np.cross(e1, e2)
+    n = n_raw / np.linalg.norm(n_raw)
+    g11 = float(e1 @ e1)
+    g12 = float(e1 @ e2)
+    g22 = float(e2 @ e2)
+    return _TriGeom(V, e1, e2, n, g11, g12, g22, g11 * g22 - g12 * g12)
+
+
+def _bary_from_offset(g: _TriGeom, d: np.ndarray) -> np.ndarray:
+    """In-plane offset ``d = q − V0`` -> barycentric ``(b0, b1, b2)``."""
+    d1 = float(d @ g.e1)
+    d2 = float(d @ g.e2)
+    b1 = (g.g22 * d1 - g.g12 * d2) / g.det_g
+    b2 = (g.g11 * d2 - g.g12 * d1) / g.det_g
+    return np.array([1.0 - b1 - b2, b1, b2])
 
 
 class Gnomonic:
-    """Gnomonic projection tangent to the sphere at ``center``.
+    """Triangle-bound gnomonic projection.
 
-    Straight lines on the plane map to great-circle arcs on the sphere.
-    Area is badly distorted toward face corners — this is a starting
-    point, not the final map.
+    ``to_sphere(β)`` builds the planar point ``β0·V0 + β1·V1 + β2·V2``
+    and renormalizes to the unit sphere. ``to_bary(p)`` scales ``p``
+    along its ray to land on the triangle's plane, then reads off
+    barycentric coordinates. Edges map to great-circle arcs; area is
+    badly distorted toward face corners.
     """
 
-    def __init__(self, center: np.ndarray, up: np.ndarray | None = None) -> None:
-        c = np.asarray(center, dtype=float)
-        c = c / np.linalg.norm(c)
-        if up is None:
-            # arbitrary axis not parallel to c
-            ref = np.array([0.0, 0.0, 1.0]) if abs(c[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
-            up = ref - np.dot(ref, c) * c
-        u = np.asarray(up, dtype=float)
-        u = u - np.dot(u, c) * c
-        u = u / np.linalg.norm(u)
-        v = np.cross(c, u)
-        self.center = c
-        self.u = u  # planar x-axis, tangent to sphere at center
-        self.v = v  # planar y-axis
+    def __init__(self, v0, v1, v2) -> None:
+        self._g = _triangle_geom(v0, v1, v2)
+        self.V = self._g.V
+        self.n = self._g.n
+        self._d_plane = float(self.V[0] @ self.n)
 
-    def forward(self, xy: np.ndarray) -> np.ndarray:
-        xy = np.asarray(xy, dtype=float)
-        x = xy[..., 0:1]
-        y = xy[..., 1:2]
-        p = self.center + x * self.u + y * self.v
-        return p / np.linalg.norm(p, axis=-1, keepdims=True)
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        v = b[0] * self.V[0] + b[1] * self.V[1] + b[2] * self.V[2]
+        return v / np.linalg.norm(v)
 
-    def inverse(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
         p = np.asarray(p, dtype=float)
-        # scale each ray so it lies on the tangent plane at center
-        denom = p @ self.center
-        q = p / denom[..., None]
-        x = q @ self.u
-        y = q @ self.v
-        return np.stack([x, y], axis=-1)
+        q = p * (self._d_plane / float(p @ self.n))
+        return _bary_from_offset(self._g, q - self.V[0])
 
 
 # Recommended parameters from the constrained-DGGS distortion study
@@ -79,9 +105,9 @@ ALPHA_SLERP_DEFAULTS = (1.149, 0.121, 0.170)  # (alpha, eta, kappa)
 class AlphaSlerp:
     """3-parameter α-slerp projection for a single icosahedron face.
 
-    Forward only (for now). Takes barycentric coordinates ``β = (β0, β1, β2)``
-    on the spherical triangle ``(V0, V1, V2)`` and returns a unit 3-vector.
-    Edges map onto great-circle arcs exactly, and with the recommended
+    Takes barycentric coordinates ``β = (β0, β1, β2)`` on the spherical
+    triangle ``(V0, V1, V2)`` and returns a unit 3-vector. Edges map
+    onto great-circle arcs exactly, and with the recommended
     ``(α, η, κ) = (1.149, 0.121, 0.170)`` the Jacobian area ratio is
     1.0014 at subdivision level k=32 — effectively equal-area.
 
@@ -103,30 +129,23 @@ class AlphaSlerp:
                  alpha: float = ALPHA_SLERP_DEFAULTS[0],
                  eta:   float = ALPHA_SLERP_DEFAULTS[1],
                  kappa: float = ALPHA_SLERP_DEFAULTS[2]) -> None:
-        self.V = np.stack([np.asarray(v, dtype=float) for v in (v0, v1, v2)], axis=0)
+        self._g = _triangle_geom(v0, v1, v2)
+        self.V = self._g.V
+        self.n = self._g.n
         self.omega = float(np.arccos(np.clip(np.dot(self.V[0], self.V[1]), -1.0, 1.0)))
         self.alpha = float(alpha)
         self.eta = float(eta)
         self.kappa = float(kappa)
         self._w0 = self.omega - self.alpha
         self._sin_omega = math.sin(self.omega)
-        e1 = self.V[1] - self.V[0]
-        e2 = self.V[2] - self.V[0]
-        n = np.cross(e1, e2)
-        self.n = n / np.linalg.norm(n)
 
-        # Face-plane geometry, cached for the inverse solver.
+        # Tangent-plane basis at V0, used by the inverse solver's residual.
+        e1 = self._g.e1
         u_raw = e1 - np.dot(e1, self.n) * self.n
         self._u = u_raw / np.linalg.norm(u_raw)
         self._v = np.cross(self.n, self._u)
-        self._e1 = e1
-        self._e2 = e2
-        self._g11 = float(e1 @ e1)
-        self._g12 = float(e1 @ e2)
-        self._g22 = float(e2 @ e2)
-        self._det_g = self._g11 * self._g22 - self._g12 * self._g12
 
-    def forward_barycentric(self, beta) -> np.ndarray:
+    def to_sphere(self, beta) -> np.ndarray:
         b = np.asarray(beta, dtype=float)
         P = float(b[0] * b[1] * b[2])
         S = self.eta + self.kappa * (b - 1.0 / 3.0)
@@ -141,22 +160,19 @@ class AlphaSlerp:
 
     def _warm_start_barycentric(self, q: np.ndarray) -> np.ndarray:
         """Euclidean barycentric of q orthogonally projected onto the face plane."""
-        d = q - np.dot(q - self.V[0], self.n) * self.n - self.V[0]
-        d1 = float(d @ self._e1)
-        d2 = float(d @ self._e2)
-        b1 = (self._g22 * d1 - self._g12 * d2) / self._det_g
-        b2 = (self._g11 * d2 - self._g12 * d1) / self._det_g
-        return np.array([1.0 - b1 - b2, b1, b2])
+        offset = q - self.V[0]
+        d = offset - np.dot(offset, self.n) * self.n
+        return _bary_from_offset(self._g, d)
 
     def _residual_tangent(self, beta: np.ndarray, q: np.ndarray) -> np.ndarray:
-        diff = self.forward_barycentric(beta) - q
+        diff = self.to_sphere(beta) - q
         return np.array([diff @ self._u, diff @ self._v])
 
-    def inverse_barycentric(self, p: np.ndarray,
-                            tol_residual: float = 1e-14,
-                            tol_step: float = 1e-13,
-                            max_iters: int = 20,
-                            fd_step: float = 1e-7) -> np.ndarray:
+    def to_bary(self, p: np.ndarray,
+                tol_residual: float = 1e-14,
+                tol_step: float = 1e-13,
+                max_iters: int = 20,
+                fd_step: float = 1e-7) -> np.ndarray:
         """Unit sphere point ``p`` (on the face) -> barycentric ``β`` on (V0, V1, V2).
 
         Finite-difference Newton in two unknowns ``(β0, β1)`` with
@@ -189,6 +205,6 @@ class AlphaSlerp:
                 return beta
 
         raise RuntimeError(
-            f"AlphaSlerp.inverse_barycentric did not converge in {max_iters} iters "
+            f"AlphaSlerp.to_bary did not converge in {max_iters} iters "
             f"(residual² = {float(r @ r):.3e})"
         )
