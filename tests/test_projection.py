@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from mu3 import icosahedron
-from mu3.projection import AlphaOnlySlerp, AlphaSlerp
+from mu3.projection import AlphaOnlySlerp, AlphaSlerp, IVEAProjection
 
-PROJECTION_CLASSES = [AlphaSlerp, AlphaOnlySlerp]
+PROJECTION_CLASSES = [AlphaSlerp, AlphaOnlySlerp, IVEAProjection]
 
 
 def _proj_for_face(cls, face: int):

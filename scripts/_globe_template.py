@@ -76,6 +76,14 @@ _HTML = r"""<!DOCTYPE html>
   body.grid .panel-sub { font-size: 11px; color: #888; }
   body.grid .panel-globe { flex: 1 1 0; min-height: 0; width: 100%; cursor: grab; outline: none; }
 
+  body.row { padding: 24px; }
+  body.row .info { position: static; top: auto; left: auto; max-width: none; margin-bottom: 12px; }
+  body.row .row { display: flex; gap: 16px; width: 100%; align-items: stretch; }
+  body.row .panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+  body.row .panel-title { font-size: 12px; font-weight: 600; color: #334; }
+  body.row .panel-sub { font-size: 11px; color: #888; }
+  body.row .panel-globe { flex: 1 1 0; aspect-ratio: 1; max-height: calc(100vh - 200px); width: 100%; cursor: grab; outline: none; }
+
   .panel-globe:active { cursor: grabbing; }
 </style>
 </head>
@@ -145,9 +153,24 @@ __PANELS_HTML__
     for (const layer of layers) {
       if (layer.type === 'polygons') {
         // d3 expects CW outer rings; our coords are CCW.
-        const reversed = layer.coords.map(poly => poly.map(ring => ring.slice().reverse()));
-        const feat = { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: reversed } };
-        marks.push(Plot.geo(feat, layer.style || {}));
+        if (layer.values) {
+          const scheme = layer.scheme || 'Viridis';
+          const interp = d3['interpolate' + scheme[0].toUpperCase() + scheme.slice(1)];
+          const cs = d3.scaleSequential(interp).domain(layer.domain || [0, 1]);
+          const features = layer.coords.map((poly, i) => ({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: poly.map(ring => ring.slice().reverse()) },
+            properties: { value: layer.values[i] },
+          }));
+          const fc = { type: 'FeatureCollection', features };
+          const style = Object.assign({}, layer.style || {});
+          delete style.fill;
+          marks.push(Plot.geo(fc, Object.assign({ fill: d => cs(d.properties.value) }, style)));
+        } else {
+          const reversed = layer.coords.map(poly => poly.map(ring => ring.slice().reverse()));
+          const feat = { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: reversed } };
+          marks.push(Plot.geo(feat, layer.style || {}));
+        }
       } else if (layer.type === 'lines') {
         const feat = { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: layer.coords } };
         marks.push(Plot.geo(feat, layer.style || {}));
@@ -306,7 +329,7 @@ def render_globe_page(*, title, info_html, panels, output_path: Path, layout="si
         panels_html = (
             f'<div class="panel-globe" id="{panels[0]["id"]}" tabindex="0"></div>'
         )
-    elif layout == "grid":
+    elif layout in ("grid", "row"):
         cells = []
         for p in panels:
             sub = (
@@ -320,7 +343,7 @@ def render_globe_page(*, title, info_html, panels, output_path: Path, layout="si
                 f'<div class="panel-globe" id="{p["id"]}" tabindex="0"></div>'
                 f'</div>'
             )
-        panels_html = '<div class="grid">' + "".join(cells) + "</div>"
+        panels_html = f'<div class="{layout}">' + "".join(cells) + "</div>"
     else:
         raise ValueError(f"unknown layout {layout!r}")
 

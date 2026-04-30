@@ -316,3 +316,309 @@ class AlphaOnlySlerp(AlphaSlerp):
                 break
             W -= residual / slope
         return betas(W)
+
+
+# ---------------------------------------------------------------------------
+# IVEA — Slice & Dice icosahedral vertex-oriented equal-area projection.
+# Port of dggal's IVEA (https://github.com/ecere/dggal,
+# src/projections/icoVertexGreatCircle.ec). Reference: Slice & Dice (2006),
+# https://doi.org/10.1559/152304006779500687.
+#
+# Each icosa face is divided into 6 fundamental sub-triangles by its three
+# medians. Each sub-tri has vertices (face_vertex, edge_mid, face_centroid),
+# all on the unit sphere. Equal-area mapping per sub-tri (Snyder 1992
+# generalized to a chosen radial vertex; IVEA puts the radial at the icosa
+# face vertex).
+# ---------------------------------------------------------------------------
+
+_ICOSA_COS = 1.0 / math.sqrt(5.0)
+_PHI = (1.0 + math.sqrt(5.0)) / 2.0
+
+_IVEA_AREA = math.radians(6.0)  # fundamental sub-tri area, π/30
+_IVEA_PARALLELEPIPED_V = math.sqrt((5.0 - 2.0 * math.sqrt(5.0)) / 15.0)
+_IVEA_D_VM = math.atan(1.0 / _PHI)                     # vertex ↔ mid arc
+_IVEA_D_MC = math.acos(math.sqrt((_PHI + 1.0) / 3.0))  # mid ↔ centroid arc
+_IVEA_D_VC = math.atan(2.0 / (_PHI * _PHI))            # vertex ↔ centroid arc
+_IVEA_COS_VM = math.cos(_IVEA_D_VM)
+_IVEA_COS_MC = math.cos(_IVEA_D_MC)
+_IVEA_SIN_MC = math.sin(_IVEA_D_MC)
+_IVEA_COS_VC = math.cos(_IVEA_D_VC)
+_IVEA_BETA = math.radians(36.0)
+_IVEA_GAMMA = math.radians(60.0)
+_IVEA_ALPHA = math.radians(90.0)
+
+
+def _slerp_angle(p0: np.ndarray, p1: np.ndarray,
+                 distance: float, movement: float) -> np.ndarray:
+    s = math.sin(distance)
+    return (math.sin(distance - movement) * p0 + math.sin(movement) * p1) / s
+
+
+def _spherical_tri_area(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
+    """Signed spherical excess via Brenton Recht's vector method."""
+    midAB = A + B; midAB = midAB / np.linalg.norm(midAB)
+    midBC = B + C; midBC = midBC / np.linalg.norm(midBC)
+    midCA = C + A; midCA = midCA / np.linalg.norm(midCA)
+    return 2.0 * math.asin(max(-1.0, min(1.0,
+        float(midAB @ np.cross(midBC, midCA)))))
+
+
+def _sqrt_one_minus_dot_over_2(a: np.ndarray, b: np.ndarray) -> float:
+    """Numerically stable ``sqrt((1 − a·b) / 2)`` for unit vectors a, b.
+
+    Avoids catastrophic cancellation when a ≈ b. From Felix Palmer's
+    a5geo formulation referenced in dggal.
+    """
+    midAB = (a + b) / 2.0
+    n = np.linalg.norm(midAB)
+    if n < 1e-15:
+        return 1.0
+    midAB = midAB / n
+    c = np.cross(a, midAB)
+    D = float(np.linalg.norm(c))
+    if D < 1e-8:
+        D = float(np.linalg.norm(a - b)) / 2.0
+    return D
+
+
+def _bary_in_subtri(beta: np.ndarray, Pa: np.ndarray, Pb: np.ndarray,
+                    Pc: np.ndarray) -> np.ndarray:
+    """face-bary β -> sub-tri bary (b0, b1, b2) where β = b0·Pa + b1·Pb + b2·Pc.
+
+    Pa/Pb/Pc are face-barycentric of the sub-triangle's vertices (each
+    summing to 1), so the system has rank 2; solve any 2 of 3 equations.
+    """
+    M = np.array([
+        [Pb[0] - Pa[0], Pc[0] - Pa[0]],
+        [Pb[1] - Pa[1], Pc[1] - Pa[1]],
+    ])
+    rhs = np.array([beta[0] - Pa[0], beta[1] - Pa[1]])
+    sol = np.linalg.solve(M, rhs)
+    return np.array([1.0 - sol[0] - sol[1], float(sol[0]), float(sol[1])])
+
+
+class IVEAProjection:
+    """Slice & Dice icosahedral vertex-oriented equal-area projection.
+
+    Forward (``to_sphere``) and inverse (``to_bary``) work face-globally:
+    any input/output is in face barycentric ``β = (β0, β1, β2)`` on
+    ``(V0, V1, V2)``. Internally classifies into one of six fundamental
+    sub-triangles and applies the per-sub-tri Slice & Dice formulas.
+
+    Requires the input triangle to be an icosahedron face (equilateral
+    spherical with edge cosine ``1/√5``); the Slice & Dice constants
+    encoded here are specific to that geometry. Use ``AlphaSlerp`` /
+    ``Gnomonic`` / ``AlphaOnlySlerp`` for arbitrary triangles.
+    """
+
+    def __init__(self, v0, v1, v2) -> None:
+        self._g = _triangle_geom(v0, v1, v2)
+        self.V = self._g.V
+        self.n = self._g.n
+
+        c01 = float(self.V[0] @ self.V[1])
+        c12 = float(self.V[1] @ self.V[2])
+        c20 = float(self.V[2] @ self.V[0])
+        if not (abs(c01 - _ICOSA_COS) < 1e-10
+                and abs(c12 - _ICOSA_COS) < 1e-10
+                and abs(c20 - _ICOSA_COS) < 1e-10):
+            raise ValueError(
+                "IVEAProjection requires an icosahedron face triangle "
+                f"(pairwise V·V = {c01:.6g}, {c12:.6g}, {c20:.6g}; "
+                f"expected 1/√5 ≈ {_ICOSA_COS:.6g})."
+            )
+
+        # Edge midpoints on the sphere; mids[i] is opposite V[i].
+        V = self.V
+        mids = np.stack([V[1] + V[2], V[0] + V[2], V[0] + V[1]])
+        for k in range(3):
+            mids[k] = mids[k] / np.linalg.norm(mids[k])
+        self.mids = mids
+
+        # Spherical centroid of the face.
+        c = V[0] + V[1] + V[2]
+        self.centroid = c / np.linalg.norm(c)
+
+        # Pre-build face-barycentric of (mid, centroid) for the conversion
+        # between face-bary and sub-tri-bary.
+        self._mid_bary = np.array([
+            [0.0, 0.5, 0.5],
+            [0.5, 0.0, 0.5],
+            [0.5, 0.5, 0.0],
+        ])
+        self._centroid_bary = np.array([1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0])
+
+        # Per-sub-triangle parallelepiped sign — depends on the actual
+        # icosa-vertex orientation, which can flip handedness between mu3
+        # and dggal's reference frame. Compute once.
+        self._sub_signs = np.empty(6)
+        for subTri in range(6):
+            A, B, C, *_ = self._subtri_struct(subTri)
+            det = float(A @ np.cross(B, C))
+            self._sub_signs[subTri] = math.copysign(1.0, det)
+
+    @staticmethod
+    def _classify_subtri(b: np.ndarray) -> int:
+        """face-bary -> sub-triangle index 0..5 (dggal convention)."""
+        b0, b1, b2 = float(b[0]), float(b[1]), float(b[2])
+        if b0 <= b1 and b0 <= b2:
+            return 0 if b1 < b2 else 1
+        if b1 <= b0 and b1 <= b2:
+            return 2 if b0 < b2 else 3
+        return 4 if b0 < b1 else 5
+
+    def _subtri_struct(self, subTri: int):
+        """Resolve sub-tri ``subTri`` to (A, B, C, Pa, Pb, Pc, bIsA).
+
+        A is the radial face vertex; (B, C) are (mid, centroid) when
+        bIsA=True and (centroid, mid) when False.
+        """
+        tri3rd = subTri >> 1
+        if subTri == 0 or subTri == 2: fv = 2
+        elif subTri == 1 or subTri == 4: fv = 1
+        else: fv = 0  # 3 or 5
+        bIsA = subTri in (0, 3, 4)
+
+        A_sph = self.V[fv]
+        mid_sph = self.mids[tri3rd]
+        cen_sph = self.centroid
+
+        Pa = np.zeros(3); Pa[fv] = 1.0
+        Pmid = self._mid_bary[tri3rd]
+        Pcen = self._centroid_bary
+
+        if bIsA:
+            return A_sph, mid_sph, cen_sph, Pa, Pmid, Pcen, True
+        return A_sph, cen_sph, mid_sph, Pa, Pcen, Pmid, False
+
+    @staticmethod
+    def _subtri_to_sphere(b: np.ndarray, A: np.ndarray, B: np.ndarray,
+                          C: np.ndarray, bIsA: bool, ppV: float) -> np.ndarray:
+        """Sub-tri bary -> sphere point. Mirrors dggal ``inverseVector``.
+
+        ``ppV`` is the signed parallelepiped det ``A·(B×C)`` for this
+        specific sub-tri orientation.
+        """
+        if b[0] > 1.0 - 1e-15: return A.copy()
+        if b[1] > 1.0 - 1e-15: return B.copy()
+        if b[2] > 1.0 - 1e-15: return C.copy()
+
+        h = 1.0 - float(b[0])
+        b2oh = float(b[2]) / h
+        ang = b2oh * _IVEA_AREA
+        halfC = math.sin(ang / 2.0)
+        halfC2 = halfC * halfC
+        CC = 2.0 * halfC2  # = 1 − cos(ang)
+        S = 2.0 * halfC * math.sqrt(max(0.0, 1.0 - halfC2))  # = sin(ang)
+
+        c01 = _IVEA_COS_VM if bIsA else _IVEA_COS_VC
+        c12 = _IVEA_COS_MC
+        c20 = _IVEA_COS_VC if bIsA else _IVEA_COS_VM
+        s12 = _IVEA_SIN_MC
+
+        f = S * ppV + CC * (c01 * c12 - c20)
+        g = CC * s12 * (1.0 + c01)
+        f2, g2, gf = f * f, g * g, g * f
+        numerator = s12 * (f2 - g2) - 2.0 * gf * c12
+        divisor = s12 * (f2 + g2)
+
+        if abs(numerator) > 1e-9 and abs(divisor) > 1e-9:
+            inv = 1.0 / divisor
+            ap = max(0.0, numerator * inv)
+            bp = min(1.0, 2.0 * gf * inv)
+            p = ap * B + bp * C
+            av = float(A @ p)
+            bv = 1.0 + h * h * (av - 1.0)
+            bvp = h * math.sqrt(max(0.0, (1.0 + bv) / max(1e-30, 1.0 + av)))
+            avp = bv - av * bvp
+            return avp * A + bvp * p
+
+        # Fallback: 2 SLERPs through D = a point on great circle BC.
+        b1pb2 = float(b[1]) + float(b[2])
+        # In dggal: upOverupPvp = b[bIsA ? 1 : 2] / (b[1] + b[2])
+        # → fraction of "mid-edge weight" within the BC distribution.
+        if b1pb2 < 1e-11:
+            up_frac = 0.0
+        else:
+            up_frac = (float(b[1]) if bIsA else float(b[2])) / b1pb2
+        rhoPlusDelta = _IVEA_BETA + _IVEA_GAMMA - up_frac * _IVEA_AREA
+        areaABD = rhoPlusDelta + _IVEA_ALPHA - math.pi
+
+        if abs(areaABD) < 1e-11:
+            D = B if bIsA else C
+            BD = _IVEA_D_VM
+        elif abs(areaABD - _IVEA_AREA) < 1e-13:
+            D = C if bIsA else B
+            BD = _IVEA_D_VC
+        else:
+            AD = 2.0 * math.atan2(g, f)
+            D = _slerp_angle(B, C, _IVEA_D_MC, AD)
+            BD = math.acos(max(-1.0, min(1.0, float(A @ D))))
+
+        x = 2.0 * math.asin(max(-1.0, min(1.0, h * math.sin(BD / 2.0))))
+        return _slerp_angle(A, D, BD, x)
+
+    def _resolve_subtri(self, subTri: int):
+        """Sub-tri vertices/face-bary, B↔C swapped if needed to align with
+        dggal's positive-determinant convention (handles mu3 vs dggal
+        icosa-orientation differences)."""
+        A, B, C, Pa, Pb, Pc, bIsA = self._subtri_struct(subTri)
+        if self._sub_signs[subTri] < 0:
+            B, C = C, B
+            Pb, Pc = Pc, Pb
+            bIsA = not bIsA
+        return A, B, C, Pa, Pb, Pc, bIsA
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        beta = np.asarray(beta, dtype=float)
+        subTri = self._classify_subtri(beta)
+        A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
+        b_sub = _bary_in_subtri(beta, Pa, Pb, Pc)
+        return self._subtri_to_sphere(b_sub, A, B, C, bIsA,
+                                       _IVEA_PARALLELEPIPED_V)
+
+    @staticmethod
+    def _subtri_to_bary(p: np.ndarray, A: np.ndarray, B: np.ndarray,
+                        C: np.ndarray) -> np.ndarray:
+        """Sphere point -> sub-tri bary. Mirrors dggal ``forwardVector``.
+
+        Uses ``abs`` on the spherical-triangle-area term — sign depends
+        on local orientation, but the fraction ``area(A,B,q) / area(A,B,C)``
+        we want is unsigned (it's the swept fraction of edge BC).
+        """
+        c1 = np.cross(A, p)
+        c2 = np.cross(B, C)
+        q = np.cross(c1, c2)
+        n = np.linalg.norm(q)
+        if n < 1e-15:
+            q = B.copy()
+        else:
+            q = q / n
+            if float(q @ (B + C)) < 0:
+                q = -q
+
+        areaABp = abs(_spherical_tri_area(A, B, q))
+        h_num = _sqrt_one_minus_dot_over_2(A, p)
+        h_den = _sqrt_one_minus_dot_over_2(A, q)
+        h = 0.0 if h_den < 1e-15 else h_num / h_den
+
+        b0 = 1.0 - h
+        b2 = min(h, h * areaABp / _IVEA_AREA)
+        b1 = h - b2
+        return np.array([b0, b1, b2])
+
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        # Classify by face-bary of the orthogonal projection to face plane.
+        face_bary = self._warm_start_face_bary(p)
+        subTri = self._classify_subtri(face_bary)
+        A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
+        b_sub = self._subtri_to_bary(p, A, B, C)
+        # Sub-tri bary -> face bary via the linear map.
+        return b_sub[0] * Pa + b_sub[1] * Pb + b_sub[2] * Pc
+
+    def _warm_start_face_bary(self, p: np.ndarray) -> np.ndarray:
+        """Euclidean barycentric of p orthogonally projected onto the face."""
+        offset = p - self.V[0]
+        d = offset - float(offset @ self.n) * self.n
+        return _bary_from_offset(self._g, d)
