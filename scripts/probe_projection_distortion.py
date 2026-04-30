@@ -27,6 +27,7 @@ from mu3.projection import (
     IVEAProjection,
     KarcherProjection,
     LambertBaryProjection,
+    TunedKarcherProjection,
 )
 
 
@@ -106,6 +107,7 @@ def main():
         ("AlphaSlerp (rich, default)", AlphaSlerp),
         ("AlphaOnlySlerp",             AlphaOnlySlerp),
         ("Karcher (Riemannian mean)",  KarcherProjection),
+        ("TunedKarcher (η,κ defaults)", TunedKarcherProjection),
         ("LambertBary (DEAD END)",     LambertBaryProjection),
     ]
     print(f"{'projection':<32s} {'n':>4s} {'area_r':>7s} {'edge_r':>7s} "

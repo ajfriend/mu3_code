@@ -853,3 +853,96 @@ class KarcherProjection(IVEAProjection):
             [1.0, 1.0, 1.0],
         ])
         return np.linalg.solve(A, np.array([0.0, 0.0, 1.0]))
+
+
+class TunedKarcherProjection(KarcherProjection):
+    """Karcher with AlphaSlerp's edge-vanishing weight correction.
+
+    Result point ``p`` defined implicitly by ``Σ wᵢ(β) · log_p(Vᵢ) = 0``
+    with ``wᵢ(β) = βᵢ · (1 + P · Sᵢ)``, ``P = β₀β₁β₂``,
+    ``Sᵢ = η + κ·(βᵢ − 1/3)``. On edges (P = 0), wᵢ collapses to βᵢ
+    and Karcher reduces to slerp, so edge-on-arc is preserved
+    automatically. (η, κ) = (0, 0) recovers plain Karcher exactly.
+
+    **Empirical finding** (see ``scripts/probe_tuned_karcher_sweep.py``):
+    η is **structurally degenerate** because Karcher's implicit
+    equation ``Σ wᵢ log_p(Vᵢ) = 0`` is scale-invariant in the weights.
+    A uniform-in-i factor like ``(1 + P·η)`` multiplies all wᵢ by the
+    same scalar, which doesn't change the equation's solution. Only
+    the i-dependent κ·(βᵢ − 1/3) term has any effect. Tuned Karcher
+    is therefore effectively a 1-parameter family in κ that moves
+    slightly along an existing trade-off curve. No (η, κ) on the
+    swept grid Pareto-dominates plain Karcher; best area_r reachable
+    is ~1.072 (vs plain Karcher's 1.083, AlphaSlerp's 1.002).
+
+    Useful negative result: the AlphaSlerp-style edge-vanishing trick
+    that works for fixed-base exp-map constructions does **not**
+    transfer cleanly to Karcher's variable-base construction. To get
+    real dials on Tuned Karcher, you'd need higher-order *per-i*
+    terms like ``κ₂·(βᵢ² − 1/9)``, not uniform-in-i additive terms.
+
+    Forward: Picard fixed-point with adjusted weights (~10 iters).
+    Inverse: fixed-point iteration around Karcher's closed-form 3×3
+    linear solve (~3-5 outer iters; one linear solve per iter).
+    """
+
+    def __init__(self, v0, v1, v2,
+                 eta: float = 0.121, kappa: float = 0.170,
+                 max_iter: int = 10, tol_step: float = 1e-12) -> None:
+        super().__init__(v0, v1, v2, max_iter=max_iter, tol_step=tol_step)
+        self.eta = float(eta)
+        self.kappa = float(kappa)
+
+    def _adjusted_weights(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        P = float(b[0] * b[1] * b[2])
+        S = self.eta + self.kappa * (b - 1.0 / 3.0)
+        return b * (1.0 + P * S)
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        w = self._adjusted_weights(b)
+        p = w[0] * self.V[0] + w[1] * self.V[1] + w[2] * self.V[2]
+        n = float(np.linalg.norm(p))
+        p = self.centroid.copy() if n < 1e-15 else p / n
+        for _ in range(self._max_iter):
+            tangent = (w[0] * _log_sphere(p, self.V[0])
+                     + w[1] * _log_sphere(p, self.V[1])
+                     + w[2] * _log_sphere(p, self.V[2]))
+            if float(np.linalg.norm(tangent)) < self._tol_step:
+                return p
+            p = _exp_sphere(p, tangent)
+            p = p / float(np.linalg.norm(p))
+        return p
+
+    def to_bary(self, p: np.ndarray, max_outer: int = 10,
+                tol_outer: float = 1e-13) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        for i in range(3):
+            if float(p @ self.V[i]) > 1.0 - 1e-15:
+                out = np.zeros(3); out[i] = 1.0; return out
+        logs = [_log_sphere(p, self.V[i]) for i in range(3)]
+        u = np.array([1.0, 0.0, 0.0])
+        if abs(float(p @ u)) > 0.9:
+            u = np.array([0.0, 1.0, 0.0])
+        e1 = u - float(u @ p) * p
+        e1 = e1 / float(np.linalg.norm(e1))
+        e2 = np.cross(p, e1)
+        x = np.array([float(g @ e1) for g in logs])
+        y = np.array([float(g @ e2) for g in logs])
+        rhs = np.array([0.0, 0.0, 1.0])
+
+        # Initial guess: linear-weight Karcher (cᵢ = 1)
+        beta = np.linalg.solve(np.array([x, y, np.ones(3)]), rhs)
+
+        # Fixed-point: rebuild with cᵢ from current β, re-solve.
+        for _ in range(max_outer):
+            P = float(beta[0] * beta[1] * beta[2])
+            S = self.eta + self.kappa * (beta - 1.0 / 3.0)
+            c = 1.0 + P * S
+            A = np.array([c * x, c * y, np.ones(3)])
+            beta_new = np.linalg.solve(A, rhs)
+            if float(np.max(np.abs(beta_new - beta))) < tol_outer:
+                return beta_new
+            beta = beta_new
+        return beta

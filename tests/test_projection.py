@@ -9,6 +9,7 @@ from mu3.projection import (
     IVEAProjection,
     KarcherProjection,
     LambertBaryProjection,
+    TunedKarcherProjection,
 )
 
 PROJECTION_CLASSES = [
@@ -18,6 +19,7 @@ PROJECTION_CLASSES = [
     AlphaIVEAProjection,  # at default α=1.0 it's exactly IVEA
     LambertBaryProjection,
     KarcherProjection,
+    TunedKarcherProjection,  # at default (η=0.121, κ=0.170)
 ]
 
 
@@ -143,3 +145,43 @@ def test_alpha_ivea_roundtrip_off_default(alpha):
             assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
             b_back = proj.to_bary(p)
             assert np.allclose(b_back, b, atol=1e-10), (face, alpha, b, b_back)
+
+
+def test_tuned_karcher_at_zero_params_is_karcher():
+    """At (η, κ) = (0, 0), the cubic correction collapses to 1; output
+    must match plain Karcher exactly."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(42)
+    for face in range(20):
+        karcher = KarcherProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]])
+        tuned = TunedKarcherProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                        eta=0.0, kappa=0.0)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p_k = karcher.to_sphere(b)
+            p_t = tuned.to_sphere(b)
+            assert np.allclose(p_k, p_t, atol=1e-12), (face, b, p_k, p_t)
+            b_back_k = karcher.to_bary(p_k)
+            b_back_t = tuned.to_bary(p_t)
+            assert np.allclose(b_back_k, b_back_t, atol=1e-11), (face, b)
+
+
+@pytest.mark.parametrize("eta,kappa", [
+    (0.121, 0.170),  # AlphaSlerp's optimum
+    (0.05, -0.05),   # arbitrary off-default
+    (0.2, 0.0),      # η-only
+    (0.0, 0.2),      # κ-only
+])
+def test_tuned_karcher_roundtrip_off_default(eta, kappa):
+    """Forward-then-inverse must recover β at non-trivial (η, κ)."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(int((eta + kappa) * 1000) + 7)
+    for face in range(20):
+        proj = TunedKarcherProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                       eta=eta, kappa=kappa)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p = proj.to_sphere(b)
+            assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
+            b_back = proj.to_bary(p)
+            assert np.allclose(b_back, b, atol=1e-9), (face, eta, kappa, b, b_back)
