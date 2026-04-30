@@ -208,3 +208,111 @@ class AlphaSlerp:
             f"AlphaSlerp.to_bary did not converge in {max_iters} iters "
             f"(residual² = {float(r @ r):.3e})"
         )
+
+
+def _cubic_inverse_unit(alpha: float, w0: float, target: float) -> float:
+    """Solve ``f(β) = α·β + 3·w0·β² − 2·w0·β³ = target`` for ``β ∈ [0, 1]``.
+
+    f maps [0, 1] monotonically onto [0, ω = α + w0]. 1D Newton with
+    a uniform-rate warm start (β = target/ω) is enough — typically 3-4
+    iters to machine precision.
+    """
+    omega = alpha + w0
+    if omega <= 0.0:
+        return 0.0
+    if abs(w0) < 1e-15:
+        return max(0.0, min(1.0, target / alpha))
+
+    beta = max(0.0, min(1.0, target / omega))
+    for _ in range(20):
+        f = alpha * beta + 3.0 * w0 * beta * beta - 2.0 * w0 * beta ** 3
+        df = alpha + 6.0 * w0 * beta * (1.0 - beta)
+        if abs(df) < 1e-15:
+            break
+        step = (f - target) / df
+        beta_new = max(0.0, min(1.0, beta - step))
+        if abs(beta_new - beta) < 1e-14:
+            return beta_new
+        beta = beta_new
+    return beta
+
+
+class AlphaOnlySlerp(AlphaSlerp):
+    """1-parameter α-only slerp: the (α, 0, 0) sub-family of α-slerp.
+
+    Cubic edge reparameterization preserves edges-on-arcs; with η=κ=0
+    the interior ``(1 + P · S)`` correction vanishes, so weights
+    ``w_i = sin(f(β_i))/sin(ω)`` decouple per coordinate. Forward is
+    identical to ``AlphaSlerp.to_sphere`` at η=κ=0.
+
+    At α ≈ 1.149 the hex-cell area ratio at k=32 is 1.023 — about a
+    third of α-slerp rich's area-uniformity win, with a cheaper
+    *and* more robust inverse: a 1D Newton on the slerp-weight sum
+    ``W`` followed by a per-coord cubic-inverse, instead of 2D FD-Newton.
+
+    The 1D path also avoids the singular-Jacobian failure mode that
+    afflicts the inherited 2D FD-Newton at triangle corners (where
+    the absent ``(1+P·S)`` correction makes the 2D forward nearly
+    rank-deficient). See ``alpha_slerp_followups.md`` in the sibling
+    distortion repo at ``/Users/aj/work/2026-04-18_distort/`` for the
+    full cost/quality analysis.
+    """
+
+    def __init__(self, v0, v1, v2,
+                 alpha: float = ALPHA_SLERP_DEFAULTS[0]) -> None:
+        super().__init__(v0, v1, v2, alpha=alpha, eta=0.0, kappa=0.0)
+        # Fast-path inverse uses the identity d_plane·n = (V0+V1+V2)/3,
+        # which holds only on equilateral spherical triangles. mu3's icosa
+        # faces always satisfy this; guard against accidental misuse.
+        V = self._g.V
+        c01 = float(V[0] @ V[1])
+        c12 = float(V[1] @ V[2])
+        c20 = float(V[2] @ V[0])
+        if not (abs(c01 - c12) < 1e-12 and abs(c12 - c20) < 1e-12):
+            raise ValueError(
+                "AlphaOnlySlerp requires an equilateral spherical triangle "
+                f"(pairwise V·V = {c01:.6g}, {c12:.6g}, {c20:.6g}). "
+                "The fast-path to_bary identity b_i = w_i + (1−W)/3 fails on "
+                "non-equilateral triangles; use AlphaSlerp for those."
+            )
+
+    def to_bary(self, p: np.ndarray,
+                tol: float = 1e-13,
+                max_iters: int = 20) -> np.ndarray:
+        """Sphere → barycentric via face-plane projection + 1D Newton on W.
+
+        For an equilateral spherical triangle on the unit sphere,
+        ``d_plane·n = (V0+V1+V2)/3``, so the Euclidean barycentric ``b``
+        of ``p`` orthogonally projected onto the face plane is related
+        to the slerp weights ``w`` by ``b_i = w_i + (1−W)/3`` where
+        ``W = Σ w_i``. Knowing ``b``, we solve for the scalar ``W``
+        such that ``Σ β_i(W) = 1``, then read off each ``β_i`` from a
+        per-coord cubic inverse.
+        """
+        p = np.asarray(p, dtype=float)
+        b = self._warm_start_barycentric(p)
+        sin_omega = self._sin_omega
+        alpha = self.alpha
+        w0 = self._w0
+
+        def betas(W: float) -> np.ndarray:
+            w = b - (1.0 - W) / 3.0
+            target = np.clip(w * sin_omega, -1.0 + 1e-15, 1.0 - 1e-15)
+            f_beta = np.arcsin(target)
+            return np.array([_cubic_inverse_unit(alpha, w0, float(f)) for f in f_beta])
+
+        # Σ β_i(W) is monotonically increasing; warm-start at W=1
+        # (corresponds to v on the face plane, the gnomonic case).
+        W = 1.0
+        h = 1e-6
+        for _ in range(max_iters):
+            beta = betas(W)
+            residual = float(beta.sum()) - 1.0
+            if abs(residual) < tol:
+                return beta
+            beta_h = betas(W + h)
+            slope = (float(beta_h.sum()) - float(beta.sum())) / h
+            if abs(slope) < 1e-15:
+                break
+            W -= residual / slope
+        return betas(W)
