@@ -622,3 +622,74 @@ class IVEAProjection:
         offset = p - self.V[0]
         d = offset - float(offset @ self.n) * self.n
         return _bary_from_offset(self._g, d)
+
+
+class AlphaIVEAProjection(IVEAProjection):
+    """IVEA + cubic reparameterization on the sub-tri's two intrinsic axes.
+
+    Each cubic ``f(t; p) = p·t + 3·(1−p)·t² − 2·(1−p)·t³`` maps [0, 1]
+    monotonically onto [0, 1] for ``p ∈ (0, 3)``. We apply one to:
+
+    - the **radial** coord ``h = 1 − b0`` (parameter ``α``) — the
+      face-vertex → opposite-edge fraction, and
+    - the **angular** coord ``b2oh = b2/h`` (parameter ``γ``) — the
+      fraction-along-BC at distance ``h``.
+
+    ``α = γ = 1`` recovers IVEA exactly (both cubics collapse to identity).
+    Other values trade exact equal-area for tunable shape/angular behavior
+    while preserving sub-tri continuity and great-circle face boundaries.
+    The closed-form inverse is preserved — two extra 1D Newton steps on
+    top of IVEA's per-sub-tri inverse.
+    """
+
+    def __init__(self, v0, v1, v2,
+                 alpha: float = 1.0, gamma: float = 1.0) -> None:
+        super().__init__(v0, v1, v2)
+        for name, val in (("α", alpha), ("γ", gamma)):
+            if not 0.0 < val < 3.0:
+                raise ValueError(
+                    f"AlphaIVEA {name} must be in (0, 3) for monotonicity; got {val}"
+                )
+        self.alpha = float(alpha)
+        self.gamma = float(gamma)
+        self._w0_a = 1.0 - self.alpha
+        self._w0_g = 1.0 - self.gamma
+
+    @staticmethod
+    def _cubic(t: float, p: float, w0: float) -> float:
+        return p * t + 3.0 * w0 * t * t - 2.0 * w0 * t ** 3
+
+    def _warp(self, b_sub: np.ndarray) -> np.ndarray:
+        h = 1.0 - float(b_sub[0])
+        if h < 1e-15:
+            return b_sub
+        b2oh = float(b_sub[2]) / h
+        h_w = self._cubic(h, self.alpha, self._w0_a)
+        b2oh_w = self._cubic(b2oh, self.gamma, self._w0_g)
+        return np.array([1.0 - h_w, h_w * (1.0 - b2oh_w), h_w * b2oh_w])
+
+    def _unwarp(self, b_sub_w: np.ndarray) -> np.ndarray:
+        h_w = 1.0 - float(b_sub_w[0])
+        if h_w < 1e-15:
+            return b_sub_w
+        b2oh_w = float(b_sub_w[2]) / h_w
+        h = _cubic_inverse_unit(self.alpha, self._w0_a, h_w)
+        b2oh = _cubic_inverse_unit(self.gamma, self._w0_g, b2oh_w)
+        return np.array([1.0 - h, h * (1.0 - b2oh), h * b2oh])
+
+    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+        beta = np.asarray(beta, dtype=float)
+        subTri = self._classify_subtri(beta)
+        A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
+        b_sub = _bary_in_subtri(beta, Pa, Pb, Pc)
+        return self._subtri_to_sphere(self._warp(b_sub), A, B, C, bIsA,
+                                       _IVEA_PARALLELEPIPED_V)
+
+    def to_bary(self, p: np.ndarray) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        face_bary = self._warm_start_face_bary(p)
+        subTri = self._classify_subtri(face_bary)
+        A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
+        b_sub_w = self._subtri_to_bary(p, A, B, C)
+        b_sub = self._unwarp(b_sub_w)
+        return b_sub[0] * Pa + b_sub[1] * Pb + b_sub[2] * Pc

@@ -2,9 +2,19 @@ import numpy as np
 import pytest
 
 from mu3 import icosahedron
-from mu3.projection import AlphaOnlySlerp, AlphaSlerp, IVEAProjection
+from mu3.projection import (
+    AlphaIVEAProjection,
+    AlphaOnlySlerp,
+    AlphaSlerp,
+    IVEAProjection,
+)
 
-PROJECTION_CLASSES = [AlphaSlerp, AlphaOnlySlerp, IVEAProjection]
+PROJECTION_CLASSES = [
+    AlphaSlerp,
+    AlphaOnlySlerp,
+    IVEAProjection,
+    AlphaIVEAProjection,  # at default α=1.0 it's exactly IVEA
+]
 
 
 def _proj_for_face(cls, face: int):
@@ -95,3 +105,37 @@ def test_near_corner_roundtrip_no_singularity(cls, eps):
             p = proj.to_sphere(b)
             b_back = proj.to_bary(p)  # must not raise
             assert np.allclose(b_back, b, atol=1e-9), (face, eps, b, b_back)
+
+
+def test_alpha_ivea_at_alpha_1_is_ivea():
+    """At α=1, the cubic collapses to identity; output must match IVEA."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(42)
+    for face in range(20):
+        ivea = IVEAProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]])
+        aivea = AlphaIVEAProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                     alpha=1.0)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p_ivea = ivea.to_sphere(b)
+            p_aivea = aivea.to_sphere(b)
+            assert np.allclose(p_ivea, p_aivea, atol=1e-13), (face, b)
+            b_back_ivea = ivea.to_bary(p_ivea)
+            b_back_aivea = aivea.to_bary(p_aivea)
+            assert np.allclose(b_back_ivea, b_back_aivea, atol=1e-12), (face, b)
+
+
+@pytest.mark.parametrize("alpha", [0.7, 0.9, 1.2, 1.5])
+def test_alpha_ivea_roundtrip_off_default(alpha):
+    """Forward-then-inverse must recover β at non-default α values."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(1000 + int(alpha * 100))
+    for face in range(20):
+        proj = AlphaIVEAProjection(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                    alpha=alpha)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p = proj.to_sphere(b)
+            assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
+            b_back = proj.to_bary(p)
+            assert np.allclose(b_back, b, atol=1e-10), (face, alpha, b, b_back)
