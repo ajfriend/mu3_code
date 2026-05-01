@@ -290,46 +290,48 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
 def _spherical_polygon_area(V: np.ndarray) -> float:
     """Spherical polygon area on the unit sphere (steradians).
 
-    Per-edge Van Oosterom–Strackee with chord identities, fanning
-    around the polygon's first vertex P = V[0]:
+    Fan-triangulate around V[0] and sum the spherical excess of each
+    fan triangle (V[0], V[i], V[i+1]) using a fully chord-based
+    Van Oosterom–Strackee formula:
 
-        contribution_i = 2 · atan2(num, den)
-        num = P · (A_i × (A_{i+1} − A_i))
-        den = ½ · (|P + A_i|² + |P + A_{i+1}|² − |A_{i+1} − A_i|²)
+        E(x, y, z) = 2 · atan2(num, den)
+        num = x · [(y − x) × (z − x)]
+        den = 4 − ½ · (|x − y|² + |y − z|² + |z − x|²)
 
-    Three algebraic identities, all exploiting |X| = 1 for unit
-    vectors, dodge the cancellation traps in the textbook VOS
-    formula. They're equivalent reformulations of the standard
-    `(1 + dot)` and `dot` terms in sum-of-squares form, where every
-    intermediate is a sum of squared real numbers (no `1 − ε`
-    cancellations possible):
+    Algebraically identical to the textbook VOS triangle formula
+    `tan(E/2) = x·(y×z) / (1 + x·y + y·z + z·x)` (verify by expanding
+    the chord identities), but every intermediate is now expressed in
+    sums-of-squares of chord vectors:
 
-      • 1 + P·V  =  ½·|P + V|²           (each `(1 + P·V_i)` term)
-      • 1 − A·B  =  ½·|B − A|²           (the chord term)
-      • A × B    =  A × (B − A)          (numerator: cross-product
-        through the small chord, avoiding cancellation on short edges)
+      • 1 + x·V    =  ½·|x + V|²        (one direction of each dot)
+      • 1 − A·B    =  ½·|B − A|²        (the other direction)
+      • x × y      =  (y − x) × (z − x) + …   (cross through chords)
 
-    Choice of fan reference: V[0]. For any small polygon (every
-    vertex within ~90° of every other), every (1 + P · A_i) is
-    bounded well away from zero. Even with the stable denominator,
-    interior-reference is preferred because it keeps per-edge
-    contributions at polygon_area/n scale (no outer cancellation
-    tower). The two edges incident to V[0] contribute exactly 0
-    (since V[0] · (V[0] × D) = 0 algebraically), reducing the
-    per-edge sum to a clean per-fan triangulation around V[0].
+    The denominator follows directly from substituting
+    `1 − A·B = ½·|B − A|²` for each of the three pairs, giving
+    `4 − ½·(|x−y|² + |y−z|² + |z−x|²)`. Every term is a sum of squared
+    real numbers — no `1 + (-1 + ε)` cancellation can arise regardless
+    of the relative positions of x, y, z.
 
-    A fixed-pole reference (e.g., south pole) is a tempting
-    simplification. The stable denominator avoids per-edge precision
-    loss, but the per-edge contributions are then `O(1)` lune-from-
-    pole magnitudes that cancel down to polygon_area in the outer
-    sum — at f64 the residual hits the precision floor for cells
-    smaller than ~1e-9 rad arc. Interior reference (V[0] or centroid)
-    sidesteps this entirely.
+    The numerator `x · [(y − x) × (z − x)]` evaluates to the same
+    `x · (y × z)` as the textbook form, but the cross product is
+    constructed from two chord vectors of length O(arc) — its
+    components are naturally O(arc²) without any cancellation in the
+    dot product with x (which would otherwise reduce a fan-cross of
+    O(arc) magnitude down to O(arc²)).
+
+    Choice of fan apex: V[0]. For any small polygon (vertices all
+    within ~90° of each other), V[0] is close to every other vertex,
+    so each fan triangle has area at polygon_area / (n−2) scale — no
+    outer-summation cancellation tower as resolution increases. The
+    polygon centroid is an alternative (safer for hemisphere-spanning
+    polygons), but for mu3's sub-90° cells the two are bit-identical
+    and V[0] saves the centroid normalize.
 
     Stable across all cell sizes through mu3 res ≥ 20 (verified). At
-    extreme radii (~1e-9 rad), this formulation actually outperforms
-    the H3 lat/lng Cagnoli formula, which loses everything to f64
-    underflow there.
+    extreme radii (~1e-9 rad), this formulation outperforms the H3
+    lat/lng Cagnoli formula, which loses everything to f64 underflow
+    there.
 
     Sign convention: CCW-from-outside convex polygons (every mu3
     cell) sum to a positive value directly. The +4π fallback catches
@@ -339,49 +341,48 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     for the full derivation and the journey through prior attempts.
     """
     n = len(V)
-    PX, PY, PZ = float(V[0][0]), float(V[0][1]), float(V[0][2])
+    x0, x1, x2 = float(V[0][0]), float(V[0][1]), float(V[0][2])
 
     sum_val = 0.0
     c = 0.0  # Kahan compensation
-    for i in range(n):
-        j = (i + 1) % n
-        ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
-        bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
+    for i in range(1, n - 1):
+        y0, y1, y2 = float(V[i][0]),     float(V[i][1]),     float(V[i][2])
+        z0, z1, z2 = float(V[i + 1][0]), float(V[i + 1][1]), float(V[i + 1][2])
 
-        # Chord (B − A): stable for short edges.
-        dx = bx - ax
-        dy = by - ay
-        dz = bz - az
+        # Three chords forming the triangle (x = V[0], y, z).
+        yx0, yx1, yx2 = y0 - x0, y1 - x1, y2 - x2  # y - x
+        zx0, zx1, zx2 = z0 - x0, z1 - x1, z2 - x2  # z - x
+        zy0, zy1, zy2 = z0 - y0, z1 - y1, z2 - y2  # z - y
 
-        # num = P · (A × (B − A))
-        cx = ay * dz - az * dy
-        cy = az * dx - ax * dz
-        cz = ax * dy - ay * dx
-        num = PX * cx + PY * cy + PZ * cz
+        # num = x · [(y - x) × (z - x)] — cross of two chords gives
+        # an O(arc²) vector directly; dotting with x extracts the
+        # signed-volume scalar without further cancellation.
+        cx0 = yx1 * zx2 - yx2 * zx1
+        cx1 = yx2 * zx0 - yx0 * zx2
+        cx2 = yx0 * zx1 - yx1 * zx0
+        num = x0 * cx0 + x1 * cx1 + x2 * cx2
 
-        # den = ½ · (|P+A|² + |P+B|² − |B−A|²) — sum-of-squares form,
-        # avoids the `1 + (-1+ε)` cancellation when P·V is near −1.
-        pax = PX + ax; pay = PY + ay; paz = PZ + az
-        pbx = PX + bx; pby = PY + by; pbz = PZ + bz
-        pa2 = pax * pax + pay * pay + paz * paz
-        pb2 = pbx * pbx + pby * pby + pbz * pbz
-        d2 = dx * dx + dy * dy + dz * dz
-        den = 0.5 * (pa2 + pb2 - d2)
+        # den = 4 - ½·(|x-y|² + |y-z|² + |z-x|²) — chord-based, every
+        # intermediate is a sum of squared reals.
+        d_xy2 = yx0 * yx0 + yx1 * yx1 + yx2 * yx2
+        d_yz2 = zy0 * zy0 + zy1 * zy1 + zy2 * zy2
+        d_zx2 = zx0 * zx0 + zx1 * zx1 + zx2 * zx2
+        den = 4.0 - 0.5 * (d_xy2 + d_yz2 + d_zx2)
 
         contribution = 2.0 * math.atan2(num, den)
 
-        # Kahan compensated summation across edges.
-        y = contribution - c
-        t = sum_val + y
-        c = (t - sum_val) - y
+        # Kahan compensated summation across fan triangles.
+        cy = contribution - c
+        t = sum_val + cy
+        c = (t - sum_val) - cy
         sum_val = t
 
-    # Interior reference V[0] → CCW convex polygons give positive sum
+    # Interior fan apex V[0] → CCW convex polygons give positive sum
     # directly. Fallback for pathological non-convex inputs.
     if sum_val < 0.0:
-        y = 4.0 * math.pi - c
-        t = sum_val + y
-        c = (t - sum_val) - y
+        cy = 4.0 * math.pi - c
+        t = sum_val + cy
+        c = (t - sum_val) - cy
         sum_val = t
     return sum_val
 

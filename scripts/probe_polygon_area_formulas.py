@@ -147,6 +147,57 @@ def vos_chord_stable_fixed_area(V: np.ndarray) -> float:
     return sum_val
 
 
+def vos_user_symmetric_area(V: np.ndarray) -> float:
+    """Candidate G (user's symmetric form):
+        num = x · [(y-x) × (z-x)]
+        den = 4 - ½·(|x-y|² + |y-z|² + |z-x|²)
+        E = 2 atan2(num, den)
+    Algebraically identical to standard VOS for unit vectors. Per-
+    triangle (not per-edge): fan around V[0] with x = V[0],
+    y = V[i], z = V[i+1] for i = 1 .. n-2.
+
+    Cross product is computed through TWO chords (y-x) and (z-x),
+    so each component of the cross is naturally O(ε²) for small
+    triangles — no intermediate O(ε) cross product whose dot with
+    the apex must cancel down to O(ε²).
+    """
+    x = V[0]
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(1, n - 1):
+        y = V[i]
+        z = V[i + 1]
+        # Chords from x.
+        yx0, yx1, yx2 = float(y[0]-x[0]), float(y[1]-x[1]), float(y[2]-x[2])
+        zx0, zx1, zx2 = float(z[0]-x[0]), float(z[1]-x[1]), float(z[2]-x[2])
+        # (y-x) × (z-x): each component a difference of small products,
+        # cross product is naturally O(arc²) without cancellation tricks.
+        cx0 = yx1 * zx2 - yx2 * zx1
+        cx1 = yx2 * zx0 - yx0 * zx2
+        cx2 = yx0 * zx1 - yx1 * zx0
+        num = float(x[0]) * cx0 + float(x[1]) * cx1 + float(x[2]) * cx2
+        # |y-z|²: chord between non-apex vertices.
+        zy0 = float(z[0] - y[0])
+        zy1 = float(z[1] - y[1])
+        zy2 = float(z[2] - y[2])
+        d_xy2 = yx0*yx0 + yx1*yx1 + yx2*yx2
+        d_yz2 = zy0*zy0 + zy1*zy1 + zy2*zy2
+        d_zx2 = zx0*zx0 + zx1*zx1 + zx2*zx2
+        den = 4.0 - 0.5 * (d_xy2 + d_yz2 + d_zx2)
+        contribution = 2.0 * math.atan2(num, den)
+        y_kahan = contribution - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    if sum_val < 0.0:
+        y_kahan = 4.0 * math.pi - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    return sum_val
+
+
 def vos_chord_v0_stable_area(V: np.ndarray) -> float:
     """Candidate F: same as V[0] but with the user's stable-denominator
     rewrite: den = 0.5·(|P+A|² + |P+B|² − |B−A|²). Algebraically
@@ -364,6 +415,7 @@ def step_1_cell_by_cell(factory, res=5):
                    "vos-chord (fixed P, stable 1+P·V)": (vos_chord_stable_fixed_area, [0.0, 0.0, 0]),
                    "vos-chord (P = V[0])": (vos_chord_v0_area, [0.0, 0.0, 0]),
                    "vos-chord (P = V[0], stable den)": (vos_chord_v0_stable_area, [0.0, 0.0, 0]),
+                   "vos-user (symmetric per-triangle)": (vos_user_symmetric_area, [0.0, 0.0, 0]),
                    "vos-chord (centroid P)": (vos_chord_centroid_area, [0.0, 0.0, 0]),
                    "vos-chord (two-pole + lune)": (vos_chord_two_pole_area, [0.0, 0.0, 0])}
         n_total = 0
@@ -400,6 +452,7 @@ def step_2_area_r_table(factories):
                                    ("vos-chord (fix+stab)",   vos_chord_stable_fixed_area),
                                    ("vos-chord (P=V[0])",     vos_chord_v0_area),
                                    ("vos-chord (V[0] stable)", vos_chord_v0_stable_area),
+                                   ("vos-user (symmetric)",    vos_user_symmetric_area),
                                    ("vos-chord (cent.)",      vos_chord_centroid_area),
                                    ("vos-chord (2pole+lune)", vos_chord_two_pole_area)]:
                 row = [f"  {label:<14s}"]
