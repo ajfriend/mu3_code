@@ -39,7 +39,7 @@ import numpy as np
 
 from . import icosahedron
 from .face_lattice import digit_offset, get_rot, s3, units
-from .projection import AlphaSlerp, Projection
+from .projection import AlphaSlerp, Projection, _spherical_tri_area
 
 _PROJECTION_CLS: type[Projection] = AlphaSlerp
 
@@ -290,18 +290,42 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
 def _spherical_polygon_area(V: np.ndarray) -> float:
     """Signed spherical polygon area on the unit sphere (steradians).
 
-    Van Oosterom–Strackee formula summed over a triangle fan from V[0].
-    CCW rings (viewed from outside the sphere) give positive area.
+    Triangle-fan from V[0] using Brenton Recht's mid-vector formula per
+    triangle (``_spherical_tri_area`` in mu3.projection), with Kahan
+    compensated summation across the fan. CCW rings (viewed from
+    outside the sphere) give positive area.
+
+    Recht's formula computes ``2 · arcsin(midAB · (midBC × midCA))``
+    where ``midXY = (X+Y) / |X+Y|`` is the unit midpoint. Stable for
+    small triangles because midpoint norms are ``2·cos(arc/2) = 2 −
+    O(arc²)``, well-conditioned at any non-antipodal pair. Replaces an
+    earlier van Oosterom-Strackee implementation whose denominator
+    ``1 + V·V + V·V + V·V`` lost precision when vertices were within
+    ~5e-9 rad of each other (= cells smaller than ~3 cm on Earth).
+
+    Kahan summation tracks rounding compensation across the fan so the
+    accumulated polygon area doesn't drift when summing many small
+    contributions (matters for many-vertex polygons; negligible for
+    mu3's 5/6-vertex cells but cheap insurance).
+
+    Note: at very small scales (cells below ~10⁻⁷ rad ≈ ~1 m on Earth,
+    i.e. mu3 res ≳ 18), the cross product ``midBC × midCA`` itself
+    starts losing relative precision in f64 because its magnitude
+    scales as ``ε²`` and the input vectors differ by only ``ε``.
+    Workable through ~res 15-16; for definitive res-18+ measurements,
+    higher-precision arithmetic (mpmath, fp80, or fp128) is required.
     """
     n = len(V)
-    total = 0.0
     v0 = V[0]
+    sum_val = 0.0
+    c = 0.0  # Kahan compensation
     for i in range(1, n - 1):
-        a, b = V[i], V[i + 1]
-        num = float(np.dot(v0, np.cross(a, b)))
-        den = 1.0 + float(np.dot(v0, a)) + float(np.dot(a, b)) + float(np.dot(b, v0))
-        total += 2.0 * math.atan2(num, den)
-    return float(total)
+        x = _spherical_tri_area(v0, V[i], V[i + 1])
+        y = x - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    return sum_val
 
 
 def cell_area(cell: Sequence[int]) -> float:
