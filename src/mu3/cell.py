@@ -290,16 +290,18 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
 def _spherical_polygon_area(V: np.ndarray) -> float:
     """Signed spherical polygon area on the unit sphere (steradians).
 
-    Triangle-fan from V[0] using Brenton Recht's mid-vector formula per
-    triangle (``_spherical_tri_area`` in mu3.projection), with Kahan
-    compensated summation across the fan. CCW rings (viewed from
-    outside the sphere) give positive area.
+    Triangle-fan from V[0] using the **Tuynman 2013** mid-vector form
+    (``_spherical_tri_area`` in mu3.projection), with Kahan compensated
+    summation across the fan. CCW rings (viewed from outside the
+    sphere) give positive area.
 
-    Recht's formula computes ``2 · arcsin(midAB · (midBC × midCA))``
-    where ``midXY = (X+Y) / |X+Y|`` is the unit midpoint. Stable for
-    small triangles because midpoint norms are ``2·cos(arc/2) = 2 −
-    O(arc²)``, well-conditioned at any non-antipodal pair. Replaces an
-    earlier van Oosterom-Strackee implementation whose denominator
+    The triangle-area formula is ``sin(Ω/2) = det₃(α, β, γ)`` where
+    ``α, β, γ`` are the unit midpoints of the triangle's sides
+    (Tuynman, "Areas of spherical and hyperbolic triangles in terms of
+    their midpoints", arxiv:1307.2567). Stable for small triangles
+    because midpoint norms are ``2·cos(arc/2) = 2 − O(arc²)``,
+    well-conditioned at any non-antipodal pair. Replaces an earlier
+    van Oosterom-Strackee implementation whose denominator
     ``1 + V·V + V·V + V·V`` lost precision when vertices were within
     ~5e-9 rad of each other (= cells smaller than ~3 cm on Earth).
 

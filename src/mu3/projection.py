@@ -403,7 +403,17 @@ def _slerp_angle(p0: np.ndarray, p1: np.ndarray,
 
 
 def _spherical_tri_area(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
-    """Signed spherical excess via Brenton Recht's vector method."""
+    """Signed spherical triangle area / excess (steradians on unit sphere).
+
+    ``sin(Ω/2) = det₃(α, β, γ)`` where α, β, γ are the unit midpoints of
+    the triangle's three sides. From Tuynman 2013, "Areas of spherical
+    and hyperbolic triangles in terms of their midpoints"
+    (arxiv:1307.2567). Numerically stable for small triangles —
+    midpoint norms are ``2·cos(arc/2)`` so they're well-conditioned at
+    any non-antipodal pair, unlike the van Oosterom-Strackee denominator
+    ``1 + V·V + V·V + V·V`` which loses precision when vertices are
+    very close.
+    """
     midAB = A + B; midAB = midAB / np.linalg.norm(midAB)
     midBC = B + C; midBC = midBC / np.linalg.norm(midBC)
     midCA = C + A; midCA = midCA / np.linalg.norm(midCA)
