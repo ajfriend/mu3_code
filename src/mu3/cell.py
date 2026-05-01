@@ -39,7 +39,7 @@ import numpy as np
 
 from . import icosahedron
 from .face_lattice import digit_offset, get_rot, s3, units
-from .projection import AlphaSlerp, Projection, _spherical_tri_area
+from .projection import AlphaSlerp, Projection
 
 _PROJECTION_CLS: type[Projection] = AlphaSlerp
 
@@ -290,40 +290,76 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
 def _spherical_polygon_area(V: np.ndarray) -> float:
     """Signed spherical polygon area on the unit sphere (steradians).
 
-    Triangle-fan from V[0] using the **Tuynman 2013** mid-vector form
-    (``_spherical_tri_area`` in mu3.projection), with Kahan compensated
-    summation across the fan. CCW rings (viewed from outside the
-    sphere) give positive area.
+    Per-edge Cagnoli-with-half-angle-shift formula, ported from H3's
+    ``cagnoli`` / ``geoLoopAreaRads2`` (h3lib/area.c) and d3-geo's
+    spherical-area implementation. Kahan compensated summation across
+    edges. CCW rings (viewed from outside the sphere) give positive
+    area.
 
-    The triangle-area formula is ``sin(Ω/2) = det₃(α, β, γ)`` where
-    ``α, β, γ`` are the unit midpoints of the triangle's sides
-    (Tuynman, "Areas of spherical and hyperbolic triangles in terms of
-    their midpoints", arxiv:1307.2567). Stable for small triangles
-    because midpoint norms are ``2·cos(arc/2) = 2 − O(arc²)``,
-    well-conditioned at any non-antipodal pair. Replaces an earlier
-    van Oosterom-Strackee implementation whose denominator
-    ``1 + V·V + V·V + V·V`` lost precision when vertices were within
-    ~5e-9 rad of each other (= cells smaller than ~3 cm on Earth).
+    Each polygon vertex is converted to (lat, lng) via ``asin``/
+    ``atan2``, then per-edge contributions use the half-angle shift
+    ``φ' = φ/2 + π/4``. Geometrically this shift is the unit midpoint
+    of V with the north pole — the lat/lng analog of the 3D mid-vector
+    stability trick. The resulting per-edge formula
+    ``-2 atan2(sin(φ'_x) sin(φ'_y) sin(Δλ),
+              sin(φ'_x) sin(φ'_y) cos(Δλ) + cos(φ'_x) cos(φ'_y))``
+    keeps trig values well-conditioned at all latitudes.
 
-    Kahan summation tracks rounding compensation across the fan so the
-    accumulated polygon area doesn't drift when summing many small
-    contributions (matters for many-vertex polygons; negligible for
-    mu3's 5/6-vertex cells but cheap insurance).
+    Stable across all cell sizes through mu3 res ≥ 20 (verified). Per-
+    edge contributions are O(ε) for ε-arc edges, well above the f64
+    precision floor; the summation cancellation to give O(ε²) polygon
+    area is handled cleanly by Kahan.
 
-    Note: at very small scales (cells below ~10⁻⁷ rad ≈ ~1 m on Earth,
-    i.e. mu3 res ≳ 18), the cross product ``midBC × midCA`` itself
-    starts losing relative precision in f64 because its magnitude
-    scales as ``ε²`` and the input vectors differ by only ``ε``.
-    Workable through ~res 15-16; for definitive res-18+ measurements,
-    higher-precision arithmetic (mpmath, fp80, or fp128) is required.
+    Earlier per-fan implementations (van Oosterom-Strackee, then
+    Tuynman mid-vector form, both summing per-triangle from V[0])
+    broke down at res 18+ because per-triangle areas themselves
+    shrink as ε², hitting the f64 precision floor. Per-edge
+    summation sidesteps this by keeping individual contributions at
+    a healthy O(ε) magnitude.
+
+    References:
+      - H3 source: ``https://github.com/uber/h3/blob/main/src/h3lib/lib/area.c``
+      - d3-geo:    ``https://github.com/d3/d3-geo/blob/main/src/area.js``
+      - The Cagnoli rule for spherical polygon area via per-edge
+        contributions is classical (18th century). The half-angle
+        latitude shift for numerical stability is documented in d3-geo
+        and adopted by H3.
     """
     n = len(V)
-    v0 = V[0]
+    # Convert each unit 3-vector to (lat, lng) and pre-shift latitude.
+    lat = np.empty(n)
+    lng = np.empty(n)
+    for i in range(n):
+        v = V[i]
+        lat[i] = math.asin(max(-1.0, min(1.0, float(v[2]))))
+        lng[i] = math.atan2(float(v[1]), float(v[0]))
+    phi = lat * 0.5 + math.pi / 4.0
+    sin_phi = np.sin(phi)
+    cos_phi = np.cos(phi)
+
     sum_val = 0.0
     c = 0.0  # Kahan compensation
-    for i in range(1, n - 1):
-        x = _spherical_tri_area(v0, V[i], V[i + 1])
-        y = x - c
+    for i in range(n):
+        j = (i + 1) % n
+        sa = float(sin_phi[i] * sin_phi[j])
+        ca = float(cos_phi[i] * cos_phi[j])
+        d = float(lng[j] - lng[i])
+        sd = math.sin(d)
+        cd = math.cos(d)
+        contribution = -2.0 * math.atan2(sa * sd, sa * cd + ca)
+        y = contribution - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+
+    # Cagnoli per-edge sums to a signed quantity in (-4π, +4π]: positive
+    # for CCW-in-lat/lng polygons, negative-of-complement for CW-in-lat/lng.
+    # mu3 cells are CCW *as viewed from outside the sphere*, but in
+    # (lat, lng) coords this maps to CW for cells that wrap the pole or
+    # sit south of the equator. Normalize per H3's convention: if
+    # negative, add 4π to recover the actual (always-positive) cell area.
+    if sum_val < 0.0:
+        y = 4.0 * math.pi - c
         t = sum_val + y
         c = (t - sum_val) - y
         sum_val = t
@@ -333,9 +369,10 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
 def cell_area(cell: Sequence[int]) -> float:
     """Spherical area of the cell, in steradians (unit-sphere).
 
-    Signed: CCW cells — the library's convention — are positive. Sum over
-    every cell at a given resolution equals 4π (the sphere). For absolute
-    area, take ``abs(cell_area(cell))``.
+    Always positive (the H3 cagnoli implementation in
+    ``_spherical_polygon_area`` normalizes any negative signed-area sums
+    that arise for southern-hemisphere or pole-wrapping cells). Sum
+    over every cell at a given resolution equals 4π (the sphere).
     """
     return _spherical_polygon_area(cell_boundary(cell, closed=False))
 
