@@ -305,6 +305,98 @@ def test_cell_area_returns_python_float():
     assert isinstance(cell_area((0, 3, 5, 2)), float)
 
 
+# ---------- cell_area at high resolution / tiny polygons ----------
+#
+# These tests guard the precision floor of `_spherical_polygon_area`.
+# Earlier implementations (per-fan VOS, per-fan Tuynman, lat/lng
+# Cagnoli) all underflow at very small cell sizes — Cagnoli, the H3
+# production formula, returns 0 for arc-radii ≲ 1e-9 rad. The current
+# implementation (per-edge VOS with chord identities and P=V[0]) stays
+# exact at all relevant scales. If someone "simplifies" the formula
+# back to a pole-anchored variant, these tests will catch it.
+
+
+def test_spherical_polygon_area_tiny_hex_at_north_pole():
+    """A regular spherical hex of arc-radius r centered at the north
+    pole has area ≈ (3√3/2) r² in the small-r limit. Verify the area
+    function gives this answer correctly even at r = 1e-9 rad, where
+    H3's Cagnoli formula underflows to zero."""
+    from mu3.cell import _spherical_polygon_area
+
+    for r in (1e-3, 1e-6, 1e-9, 1e-12):
+        pts = []
+        for k in range(6):
+            theta = 2.0 * math.pi * k / 6.0
+            pts.append((
+                math.sin(r) * math.cos(theta),
+                math.sin(r) * math.sin(theta),
+                math.cos(r),
+            ))
+        V = np.array(pts)
+        analytic = 1.5 * math.sqrt(3.0) * r * r
+        area = _spherical_polygon_area(V)
+        assert area > 0, f"r={r}: area is non-positive ({area})"
+        rel_err = abs(area - analytic) / analytic
+        # Allow generous slack at r=1e-3 where the small-r approximation
+        # for the analytic area starts to deviate from the actual
+        # spherical hex area; tighter tolerance at smaller r.
+        tol = 1e-4 if r >= 1e-3 else 1e-10
+        assert rel_err < tol, (
+            f"r={r}: rel error {rel_err:.2e} (area={area}, analytic={analytic})"
+        )
+
+
+def test_spherical_polygon_area_tiny_hex_at_south_pole():
+    """Same as north-pole test but at the south pole. With a fixed
+    south-pole fan reference this would fail catastrophically; with
+    P = V[0] (the polygon's first vertex) it works because V[0] is
+    near the south pole, *not* near its antipode."""
+    from mu3.cell import _spherical_polygon_area
+
+    for r in (1e-3, 1e-6, 1e-9):
+        pts = []
+        # CCW from outside (looking up at the south pole).
+        for k in range(6):
+            theta = -2.0 * math.pi * k / 6.0  # negative for CCW-from-outside
+            pts.append((
+                math.sin(r) * math.cos(theta),
+                math.sin(r) * math.sin(theta),
+                -math.cos(r),
+            ))
+        V = np.array(pts)
+        analytic = 1.5 * math.sqrt(3.0) * r * r
+        area = _spherical_polygon_area(V)
+        assert area > 0, f"r={r}: area is non-positive ({area})"
+        rel_err = abs(area - analytic) / analytic
+        tol = 1e-4 if r >= 1e-3 else 1e-10
+        assert rel_err < tol, (
+            f"r={r}: rel error {rel_err:.2e} (area={area}, analytic={analytic})"
+        )
+
+
+def test_cell_area_high_res_positive_and_small():
+    """At res 18 a typical hex cell is on the order of 1e-15 sr (~25 cm
+    on Earth). cell_area must return a positive, finite, small value
+    for these — earlier implementations gave 0 or negative garbage."""
+    # Pick a few cells at res 18 (hex paths around different bases).
+    test_cells = [
+        (0, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 2, 3, 4),
+        (5, 6, 5, 4, 3, 2, 6, 5, 4, 3, 2, 6, 5, 4, 3, 2, 6, 5, 4),
+        (11, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ]
+    for cell in test_cells:
+        if not is_valid_cell(cell):
+            continue
+        if is_pentagon(cell):
+            continue
+        a = cell_area(cell)
+        assert math.isfinite(a), f"cell {cell}: area not finite ({a})"
+        assert a > 0, f"cell {cell}: area not positive ({a})"
+        # Sanity bounds: hex cell area at res 18 is ~10^-15 sr
+        # (reasonable range 1e-17 .. 1e-13 covers any orientation).
+        assert 1e-17 < a < 1e-13, f"cell {cell}: area {a} out of expected res-18 range"
+
+
 # ---------- is_pentagon ----------
 
 
