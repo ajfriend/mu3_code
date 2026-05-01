@@ -210,6 +210,54 @@ class AlphaSlerp:
         )
 
 
+class AlphaSlerpExtended(AlphaSlerp):
+    """AlphaSlerp + higher-order interior polynomial correction.
+
+    Extends ``Sᵢ`` from linear to cubic in ``δᵢ = βᵢ − 1/3``::
+
+        Sᵢ      = η + κ·δᵢ + λ·δᵢ² + μ·δᵢ³
+        weights = (1 + P · Sᵢ) · sin(f(βᵢ)) / sin(ω),  P = β₀β₁β₂
+
+    Edge-on-arc preserved automatically (P = 0 on edges, so the entire
+    Sᵢ correction vanishes regardless of polynomial order). At
+    ``(λ, μ) = (0, 0)`` reduces to plain AlphaSlerp.
+
+    Used to test whether AlphaSlerp's 3-parameter optimum is at a true
+    plateau under our discrete-cell metric. The sister-repo's
+    continuous-Jacobian experiments show diminishing returns past 3
+    params; this class lets us check the same against discrete cells.
+    """
+
+    def __init__(self, v0, v1, v2,
+                 alpha: float = ALPHA_SLERP_DEFAULTS[0],
+                 eta:   float = ALPHA_SLERP_DEFAULTS[1],
+                 kappa: float = ALPHA_SLERP_DEFAULTS[2],
+                 lambd: float = 0.0,
+                 mu:    float = 0.0) -> None:
+        super().__init__(v0, v1, v2, alpha=alpha, eta=eta, kappa=kappa)
+        self.lambd = float(lambd)
+        self.mu = float(mu)
+
+    def to_sphere(self, beta) -> np.ndarray:
+        b = np.asarray(beta, dtype=float)
+        P = float(b[0] * b[1] * b[2])
+        delta = b - 1.0 / 3.0
+        S = (self.eta
+             + self.kappa * delta
+             + self.lambd * delta ** 2
+             + self.mu    * delta ** 3)
+        f = (self.alpha * b
+             + 3.0 * self._w0 * b ** 2
+             - 2.0 * self._w0 * b ** 3)
+        weights = (1.0 + P * S) * np.sin(f) / self._sin_omega
+        v_star = self.V.T @ weights
+        n_dot = float(np.dot(v_star, self.n))
+        disc = 1.0 + n_dot ** 2 - float(np.dot(v_star, v_star))
+        p = -n_dot + math.sqrt(max(disc, 0.0))
+        v = v_star + p * self.n
+        return v / np.linalg.norm(v)
+
+
 def _cubic_inverse_unit(alpha: float, w0: float, target: float) -> float:
     """Solve ``f(β) = α·β + 3·w0·β² − 2·w0·β³ = target`` for ``β ∈ [0, 1]``.
 

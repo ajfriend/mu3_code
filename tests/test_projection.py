@@ -6,6 +6,7 @@ from mu3.projection import (
     AlphaIVEAProjection,
     AlphaOnlySlerp,
     AlphaSlerp,
+    AlphaSlerpExtended,
     IVEAProjection,
     KarcherPolyProjection,
     KarcherProjection,
@@ -22,6 +23,7 @@ PROJECTION_CLASSES = [
     KarcherProjection,
     TunedKarcherProjection,  # at default (η=0.121, κ=0.170)
     KarcherPolyProjection,   # at default kappas=() it's exactly Karcher
+    AlphaSlerpExtended,      # at default (λ, μ)=(0,0) it's exactly AlphaSlerp
 ]
 
 
@@ -225,3 +227,43 @@ def test_karcher_poly_roundtrip_off_default(kappas):
             assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
             b_back = proj.to_bary(p)
             assert np.allclose(b_back, b, atol=1e-9), (face, kappas, b, b_back)
+
+
+def test_alpha_slerp_extended_at_zero_higher_order_is_alphaslerp():
+    """At (λ, μ) = (0, 0) the higher-order terms vanish; output must
+    match plain AlphaSlerp exactly."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(1717)
+    for face in range(20):
+        plain = AlphaSlerp(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]])
+        extended = AlphaSlerpExtended(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                       lambd=0.0, mu=0.0)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p_plain = plain.to_sphere(b)
+            p_ext = extended.to_sphere(b)
+            assert np.allclose(p_plain, p_ext, atol=1e-13), (face, b)
+            b_back_plain = plain.to_bary(p_plain)
+            b_back_ext = extended.to_bary(p_ext)
+            assert np.allclose(b_back_plain, b_back_ext, atol=1e-12), (face, b)
+
+
+@pytest.mark.parametrize("lambd,mu", [
+    (0.1, 0.05),
+    (-0.2, 0.0),
+    (0.0, 0.15),
+    (0.3, -0.1),
+])
+def test_alpha_slerp_extended_roundtrip_off_default(lambd, mu):
+    """Forward-then-inverse must recover β at non-trivial (λ, μ)."""
+    V = icosahedron.vertices()
+    F = icosahedron.faces()
+    rng = np.random.default_rng(int(abs(lambd * 1000) + abs(mu * 1000)) + 91)
+    for face in range(20):
+        proj = AlphaSlerpExtended(V[F[face, 0]], V[F[face, 1]], V[F[face, 2]],
+                                   lambd=lambd, mu=mu)
+        for b in rng.dirichlet([2.0, 2.0, 2.0], size=20):
+            p = proj.to_sphere(b)
+            assert np.isclose(np.linalg.norm(p), 1.0, atol=1e-12)
+            b_back = proj.to_bary(p)
+            assert np.allclose(b_back, b, atol=1e-9), (face, lambd, mu, b, b_back)
