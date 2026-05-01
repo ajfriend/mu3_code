@@ -206,8 +206,15 @@ def vos_chord_two_pole_area(V: np.ndarray) -> float:
     cells far from the equator).
     """
     n = len(V)
-    sum_val = 0.0
-    c = 0.0
+    # Two independent Kahan accumulators: one for the per-edge VOS
+    # contributions, one for the lune corrections. Adding them
+    # together pre-Kahan would mix scales and grow intermediate
+    # values; keeping them separate bounds each running sum by its
+    # own natural scale (per-edge term magnitude, not their sum).
+    vos_sum = 0.0
+    c_vos = 0.0
+    lune_sum = 0.0
+    c_lune = 0.0
     for i in range(n):
         j = (i + 1) % n
         ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
@@ -233,20 +240,26 @@ def vos_chord_two_pole_area(V: np.ndarray) -> float:
         den = (1.0 + pa) + (1.0 + pb) - 0.5 * d2
         vos_term = 2.0 * math.atan2(num, den)
 
-        # Kahan-feed the VOS term.
-        y = vos_term - c
-        t = sum_val + y
-        c = (t - sum_val) - y
-        sum_val = t
+        # Kahan into VOS accumulator.
+        y = vos_term - c_vos
+        t = vos_sum + y
+        c_vos = (t - vos_sum) - y
+        vos_sum = t
 
-        # Kahan-feed the lune correction (separately) when we used P_S.
         if used_S:
             d_lambda = math.atan2(ax * by - ay * bx, ax * bx + ay * by)
             lune_term = 2.0 * d_lambda
-            y = lune_term - c
-            t = sum_val + y
-            c = (t - sum_val) - y
-            sum_val = t
+            # Kahan into lune accumulator.
+            y = lune_term - c_lune
+            t = lune_sum + y
+            c_lune = (t - lune_sum) - y
+            lune_sum = t
+
+    # Combine the two Kahan-summed values. Both are ~polygon_area-
+    # scale (vos_sum) or ~0 (lune_sum) for closed non-pole-enclosing
+    # polygons; this final add doesn't introduce new cancellation.
+    sum_val = vos_sum + lune_sum
+    c = c_vos + c_lune
 
     if sum_val < 0.0:
         y = 4.0 * math.pi - c
