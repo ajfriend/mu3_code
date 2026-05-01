@@ -199,9 +199,11 @@ def vos_chord_two_pole_area(V: np.ndarray) -> float:
     back to the "P_N convention". Δλ is computed directly from 3D
     coords as atan2(A_x B_y − A_y B_x, A_x B_x + A_y B_y).
 
-    No per-polygon state. Per-edge branch on which pole to use, plus
-    one atan2 per P_S edge. For polygons that span both pole regions,
-    every edge uses its own well-conditioned reference.
+    Kahan-feeds the per-edge VOS contribution AND the per-edge
+    lune correction as separate terms — adding them together
+    pre-Kahan would cancel away most of the residual precision when
+    the two have similar magnitudes with opposite signs (high-res
+    cells far from the equator).
     """
     n = len(V)
     sum_val = 0.0
@@ -211,10 +213,6 @@ def vos_chord_two_pole_area(V: np.ndarray) -> float:
         ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
         bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
 
-        # Pick P based on edge latitude. P_N if avg z >= 0, else P_S.
-        # Use P_N: 1 + P_N·V = 1 + V_z (precision OK if V_z > -1, i.e.,
-        # V not near south pole). Use P_S: 1 + P_S·V = 1 - V_z (OK if
-        # V not near north pole).
         if az + bz >= 0.0:
             PX, PY, PZ = 0.0, 0.0, 1.0
             used_S = False
@@ -233,19 +231,22 @@ def vos_chord_two_pole_area(V: np.ndarray) -> float:
         pb = PX * bx + PY * by + PZ * bz
         d2 = dx * dx + dy * dy + dz * dz
         den = (1.0 + pa) + (1.0 + pb) - 0.5 * d2
-        contribution = 2.0 * math.atan2(num, den)
+        vos_term = 2.0 * math.atan2(num, den)
 
-        # If we used P_S, add lune correction 2·Δλ to convert to
-        # the P_N convention.
-        if used_S:
-            d_lambda = math.atan2(ax * by - ay * bx, ax * bx + ay * by)
-            contribution += 2.0 * d_lambda
-
-        # Kahan compensated sum.
-        y = contribution - c
+        # Kahan-feed the VOS term.
+        y = vos_term - c
         t = sum_val + y
         c = (t - sum_val) - y
         sum_val = t
+
+        # Kahan-feed the lune correction (separately) when we used P_S.
+        if used_S:
+            d_lambda = math.atan2(ax * by - ay * bx, ax * bx + ay * by)
+            lune_term = 2.0 * d_lambda
+            y = lune_term - c
+            t = sum_val + y
+            c = (t - sum_val) - y
+            sum_val = t
 
     if sum_val < 0.0:
         y = 4.0 * math.pi - c
