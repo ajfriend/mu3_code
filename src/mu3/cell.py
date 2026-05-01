@@ -288,76 +288,101 @@ def cell_center(cell: Sequence[int]) -> np.ndarray:
 
 
 def _spherical_polygon_area(V: np.ndarray) -> float:
-    """Signed spherical polygon area on the unit sphere (steradians).
+    """Spherical polygon area on the unit sphere (steradians).
 
-    Per-edge Cagnoli-with-half-angle-shift formula, ported from H3's
-    ``cagnoli`` / ``geoLoopAreaRads2`` (h3lib/area.c) and d3-geo's
-    spherical-area implementation. Kahan compensated summation across
-    edges. CCW rings (viewed from outside the sphere) give positive
-    area.
+    Per-edge Van Oosterom–Strackee with chord identities, fanning
+    around the polygon's own (unit-normalized) centroid:
 
-    Each polygon vertex is converted to (lat, lng) via ``asin``/
-    ``atan2``, then per-edge contributions use the half-angle shift
-    ``φ' = φ/2 + π/4``. Geometrically this shift is the unit midpoint
-    of V with the north pole — the lat/lng analog of the 3D mid-vector
-    stability trick. The resulting per-edge formula
-    ``-2 atan2(sin(φ'_x) sin(φ'_y) sin(Δλ),
-              sin(φ'_x) sin(φ'_y) cos(Δλ) + cos(φ'_x) cos(φ'_y))``
-    keeps trig values well-conditioned at all latitudes.
+        contribution_i = 2 · atan2(num, den)
+        num = P · (A_i × (A_{i+1} − A_i))
+        den = (1 + P · A_i) + (1 + P · A_{i+1}) − 0.5 · |A_{i+1} − A_i|²
 
-    Stable across all cell sizes through mu3 res ≥ 20 (verified). Per-
-    edge contributions are O(ε) for ε-arc edges, well above the f64
-    precision floor; the summation cancellation to give O(ε²) polygon
-    area is handled cleanly by Kahan.
+    Two algebraic identities exploit |A| = |B| = 1 to dodge the
+    cancellation traps in the textbook VOS formula:
 
-    Earlier per-fan implementations (van Oosterom-Strackee, then
-    Tuynman mid-vector form, both summing per-triangle from V[0])
-    broke down at res 18+ because per-triangle areas themselves
-    shrink as ε², hitting the f64 precision floor. Per-edge
-    summation sidesteps this by keeping individual contributions at
-    a healthy O(ε) magnitude.
+      • A · B  =  1 − 0.5·|B − A|²       (denominator: replaces
+        the 4-way cancellation `1 + P·A + A·B + B·P` with three
+        independently-conditioned terms)
+      • A × B  =  A × (B − A)            (numerator: cross-product
+        through the small chord, avoiding cancellation on short edges)
 
-    References:
-      - H3 source: ``https://github.com/uber/h3/blob/main/src/h3lib/lib/area.c``
-      - d3-geo:    ``https://github.com/d3/d3-geo/blob/main/src/area.js``
-      - The Cagnoli rule for spherical polygon area via per-edge
-        contributions is classical (18th century). The half-angle
-        latitude shift for numerical stability is documented in d3-geo
-        and adopted by H3.
+    Choice of fan reference: the polygon's own unit centroid. With P
+    inside the polygon, every (1 + P · A_i) ≈ 2 — bounded away from
+    zero. This eliminates the antipodal precision loss that bites a
+    fixed-pole reference (when a vertex approaches −P, computing
+    `1 + P · V` as `1 + (near −1)` loses 12+ digits). One extra
+    normalize per polygon; otherwise pure 3D arithmetic, no
+    transcendentals per vertex.
+
+    Stable across all cell sizes through mu3 res ≥ 20 (verified). At
+    extreme radii (~1e-9 rad), this formulation actually outperforms
+    the H3 lat/lng Cagnoli formula, which loses everything to f64
+    underflow there.
+
+    Sign convention: CCW-from-outside polygons containing the centroid
+    (always true for convex spherical polygons, including mu3 cells)
+    sum to a positive value directly. The +4π fallback catches any
+    edge case where the signed sum comes out negative.
+
+    Path to here (see ``todo/2026-04-30-spherical-polygon-area.md``):
+      - Attempt 1: per-fan VOS, no chord identities — denominator
+        cancellation broke at ε ≲ 8e-8 (res 14+).
+      - Attempt 2: per-fan Tuynman mid-vector — same per-fan
+        structural floor.
+      - Attempt 3: per-edge Tuynman mid-vector with fixed S — the
+        unit midpoint (S+X)/|S+X| blew up for X near −S.
+      - Attempt 4: lat/lng Cagnoli (H3 port) — worked, but routed
+        every vertex through asin/atan2.
+      - Attempt 5 (this): per-edge VOS with chord identities and
+        polygon-centroid fan reference — purely 3D, no
+        transcendentals per vertex, beats Cagnoli at extreme radii.
     """
+    # Polygon centroid (unit-normalized) as the fan reference.
     n = len(V)
-    # Convert each unit 3-vector to (lat, lng) and pre-shift latitude.
-    lat = np.empty(n)
-    lng = np.empty(n)
+    sx = sy = sz = 0.0
     for i in range(n):
-        v = V[i]
-        lat[i] = math.asin(max(-1.0, min(1.0, float(v[2]))))
-        lng[i] = math.atan2(float(v[1]), float(v[0]))
-    phi = lat * 0.5 + math.pi / 4.0
-    sin_phi = np.sin(phi)
-    cos_phi = np.cos(phi)
+        sx += float(V[i][0])
+        sy += float(V[i][1])
+        sz += float(V[i][2])
+    pnorm = math.sqrt(sx * sx + sy * sy + sz * sz)
+    PX = sx / pnorm
+    PY = sy / pnorm
+    PZ = sz / pnorm
 
     sum_val = 0.0
     c = 0.0  # Kahan compensation
     for i in range(n):
         j = (i + 1) % n
-        sa = float(sin_phi[i] * sin_phi[j])
-        ca = float(cos_phi[i] * cos_phi[j])
-        d = float(lng[j] - lng[i])
-        sd = math.sin(d)
-        cd = math.cos(d)
-        contribution = -2.0 * math.atan2(sa * sd, sa * cd + ca)
+        ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
+        bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
+
+        # Chord (B − A): stable for short edges.
+        dx = bx - ax
+        dy = by - ay
+        dz = bz - az
+
+        # num = P · (A × (B − A))
+        cx = ay * dz - az * dy
+        cy = az * dx - ax * dz
+        cz = ax * dy - ay * dx
+        num = PX * cx + PY * cy + PZ * cz
+
+        # den = (1 + P·A) + (1 + P·B) − 0.5 · |B − A|²
+        pa = PX * ax + PY * ay + PZ * az
+        pb = PX * bx + PY * by + PZ * bz
+        d2 = dx * dx + dy * dy + dz * dz
+        den = (1.0 + pa) + (1.0 + pb) - 0.5 * d2
+
+        contribution = 2.0 * math.atan2(num, den)
+
+        # Kahan compensated summation across edges.
         y = contribution - c
         t = sum_val + y
         c = (t - sum_val) - y
         sum_val = t
 
-    # Cagnoli per-edge sums to a signed quantity in (-4π, +4π]: positive
-    # for CCW-in-lat/lng polygons, negative-of-complement for CW-in-lat/lng.
-    # mu3 cells are CCW *as viewed from outside the sphere*, but in
-    # (lat, lng) coords this maps to CW for cells that wrap the pole or
-    # sit south of the equator. Normalize per H3's convention: if
-    # negative, add 4π to recover the actual (always-positive) cell area.
+    # Centroid is interior to convex polygons → sum is positive
+    # directly. Fallback in case of pathological non-convex inputs.
     if sum_val < 0.0:
         y = 4.0 * math.pi - c
         t = sum_val + y
