@@ -291,7 +291,7 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     """Spherical polygon area on the unit sphere (steradians).
 
     Per-edge Van Oosterom–Strackee with chord identities, fanning
-    around the polygon's own (unit-normalized) centroid:
+    around the polygon's first vertex P = V[0]:
 
         contribution_i = 2 · atan2(num, den)
         num = P · (A_i × (A_{i+1} − A_i))
@@ -306,23 +306,31 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
       • A × B  =  A × (B − A)            (numerator: cross-product
         through the small chord, avoiding cancellation on short edges)
 
-    Choice of fan reference: the polygon's own unit centroid. With P
-    inside the polygon, every (1 + P · A_i) ≈ 2 — bounded away from
-    zero. This eliminates the antipodal precision loss that bites a
-    fixed-pole reference (when a vertex approaches −P, computing
-    `1 + P · V` as `1 + (near −1)` loses 12+ digits). One extra
-    normalize per polygon; otherwise pure 3D arithmetic, no
-    transcendentals per vertex.
+    Choice of fan reference: V[0]. For any small polygon (every
+    vertex within ~90° of every other), every (1 + P · A_i) is
+    bounded well away from zero — no antipodal precision loss in the
+    denominator. The polygon centroid is an alternative that handles
+    arbitrary spherical polygons (including those wrapping a
+    hemisphere), but for the convex sub-90° polygons mu3 produces,
+    V[0] is bit-identical to centroid-P at every measured resolution
+    while skipping the centroid normalize. The two edges incident to
+    V[0] contribute exactly 0 (since V[0] · (V[0] × D) = 0
+    algebraically), reducing the per-edge sum to a clean per-fan
+    triangulation around V[0].
+
+    A fixed-pole reference (e.g., south pole) is a tempting
+    simplification but breaks for polygons near the antipode of the
+    chosen pole — see ``todo/2026-04-30-spherical-polygon-area.md``
+    for the failure analysis.
 
     Stable across all cell sizes through mu3 res ≥ 20 (verified). At
     extreme radii (~1e-9 rad), this formulation actually outperforms
     the H3 lat/lng Cagnoli formula, which loses everything to f64
     underflow there.
 
-    Sign convention: CCW-from-outside polygons containing the centroid
-    (always true for convex spherical polygons, including mu3 cells)
-    sum to a positive value directly. The +4π fallback catches any
-    edge case where the signed sum comes out negative.
+    Sign convention: CCW-from-outside convex polygons (every mu3
+    cell) sum to a positive value directly. The +4π fallback catches
+    pathological non-convex inputs.
 
     Path to here (see ``todo/2026-04-30-spherical-polygon-area.md``):
       - Attempt 1: per-fan VOS, no chord identities — denominator
@@ -334,20 +342,11 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
       - Attempt 4: lat/lng Cagnoli (H3 port) — worked, but routed
         every vertex through asin/atan2.
       - Attempt 5 (this): per-edge VOS with chord identities and
-        polygon-centroid fan reference — purely 3D, no
-        transcendentals per vertex, beats Cagnoli at extreme radii.
+        P = V[0] — purely 3D, no transcendentals per vertex, beats
+        Cagnoli at extreme radii.
     """
-    # Polygon centroid (unit-normalized) as the fan reference.
     n = len(V)
-    sx = sy = sz = 0.0
-    for i in range(n):
-        sx += float(V[i][0])
-        sy += float(V[i][1])
-        sz += float(V[i][2])
-    pnorm = math.sqrt(sx * sx + sy * sy + sz * sz)
-    PX = sx / pnorm
-    PY = sy / pnorm
-    PZ = sz / pnorm
+    PX, PY, PZ = float(V[0][0]), float(V[0][1]), float(V[0][2])
 
     sum_val = 0.0
     c = 0.0  # Kahan compensation

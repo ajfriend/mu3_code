@@ -102,6 +102,93 @@ def vos_chord_area(V: np.ndarray) -> float:
     return sum_val
 
 
+def vos_chord_stable_fixed_area(V: np.ndarray) -> float:
+    """Candidate C: per-edge VOS with chord identities + the
+    `onePlusDotStable` rewrite for (1 + P·V), with FIXED south pole P.
+
+    Does the stable rewrite alone rescue the fixed-pole version?
+    (1 + P·V) ≡ 0.5 · |P + V|² for unit P, V — algebraically exact,
+    avoids the 1 + (near -1) cancellation when V is near -P.
+    """
+    PX, PY, PZ = 0.0, 0.0, -1.0
+    n = len(V)
+
+    def one_plus_dot(vx, vy, vz):
+        x = PX + vx; y = PY + vy; z = PZ + vz
+        return 0.5 * (x * x + y * y + z * z)
+
+    sum_val = 0.0
+    c = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
+        bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
+        dx = bx - ax
+        dy = by - ay
+        dz = bz - az
+        cx = ay * dz - az * dy
+        cy = az * dx - ax * dz
+        cz = ax * dy - ay * dx
+        num = PX * cx + PY * cy + PZ * cz
+        opa = one_plus_dot(ax, ay, az)
+        opb = one_plus_dot(bx, by, bz)
+        d2 = dx * dx + dy * dy + dz * dz
+        den = opa + opb - 0.5 * d2
+        contribution = 2.0 * math.atan2(num, den)
+        y = contribution - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    if sum_val < 0.0:
+        y = 4.0 * math.pi - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    return sum_val
+
+
+def vos_chord_v0_area(V: np.ndarray) -> float:
+    """Candidate D: VOS with chord identities, P = V[0] (first vertex).
+
+    For polygons where no vertex is near the antipode of V[0]
+    (always true for small mu3 cells), this works and saves the
+    centroid normalize. Edges (V[0], V[1]) and (V[n-1], V[0])
+    contribute 0 because num = V[0]·(V[0] × D) = 0 exactly. Net
+    effect: per-fan triangulation around V[0] with the chord-
+    identity denominator.
+    """
+    PX, PY, PZ = float(V[0][0]), float(V[0][1]), float(V[0][2])
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
+        bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
+        dx = bx - ax
+        dy = by - ay
+        dz = bz - az
+        cx = ay * dz - az * dy
+        cy = az * dx - ax * dz
+        cz = ax * dy - ay * dx
+        num = PX * cx + PY * cy + PZ * cz
+        pa = PX * ax + PY * ay + PZ * az
+        pb = PX * bx + PY * by + PZ * bz
+        d2 = dx * dx + dy * dy + dz * dz
+        den = (1.0 + pa) + (1.0 + pb) - 0.5 * d2
+        contribution = 2.0 * math.atan2(num, den)
+        y = contribution - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    if sum_val < 0.0:
+        y = 4.0 * math.pi - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    return sum_val
+
+
 def vos_chord_centroid_area(V: np.ndarray) -> float:
     """Candidate B: per-edge VOS with chord identities + polygon-centroid
     fan reference. Per-polygon overhead: one normalize. Avoids the
@@ -152,6 +239,8 @@ def step_1_cell_by_cell(factory, res=5):
     print(f"\n=== Step 1: cell-by-cell comparison at res {res} (vs cagnoli) ===")
     with active_projection(factory):
         results = {"vos-chord (fixed P)": (vos_chord_area, [0.0, 0.0, 0]),
+                   "vos-chord (fixed P, stable 1+P·V)": (vos_chord_stable_fixed_area, [0.0, 0.0, 0]),
+                   "vos-chord (P = V[0])": (vos_chord_v0_area, [0.0, 0.0, 0]),
                    "vos-chord (centroid P)": (vos_chord_centroid_area, [0.0, 0.0, 0])}
         n_total = 0
         for cell in cells_at_res(res):
@@ -182,9 +271,11 @@ def step_2_area_r_table(factories):
         print(f"\nparameter set: {name}")
         print(f"  {'formula':<14s} {'res 5':>10s} {'res 10':>10s} {'res 15':>10s} {'res 18':>10s} {'res 20':>10s}")
         with active_projection(factory):
-            for label, area_fn in [("cagnoli",            cagnoli_area),
-                                   ("vos-chord (fixed)",  vos_chord_area),
-                                   ("vos-chord (cent.)",  vos_chord_centroid_area)]:
+            for label, area_fn in [("cagnoli",                cagnoli_area),
+                                   ("vos-chord (fixed)",      vos_chord_area),
+                                   ("vos-chord (fix+stab)",   vos_chord_stable_fixed_area),
+                                   ("vos-chord (P=V[0])",     vos_chord_v0_area),
+                                   ("vos-chord (cent.)",      vos_chord_centroid_area)]:
                 row = [f"  {label:<14s}"]
                 for res in [5, 10, 15, 18, 20]:
                     cells = structural_cells(res)
@@ -222,19 +313,23 @@ def hex_polygon_at_north_pole(angular_radius: float) -> np.ndarray:
 
 def step_3_antipodal_stress():
     print("\n=== Step 3: antipodal stress (hex centered at north pole = -P_fixed) ===")
-    print(f"  {'r (rad)':>10s} {'analytic':>13s} {'cagnoli':>13s} {'vos fixed':>13s} {'vos centroid':>13s}"
-          f" {'r_cag':>9s} {'r_fix':>9s} {'r_cen':>9s}")
+    print(f"  {'r (rad)':>10s} {'analytic':>10s} {'cagnoli':>10s} {'fix':>10s} {'fix+stab':>10s} {'P=V[0]':>10s} {'centroid':>10s}"
+          f"  {'r_cag':>7s} {'r_fix':>7s} {'r_stab':>7s} {'r_v0':>7s} {'r_cen':>7s}")
     for r in [1e-3, 1e-6, 1e-9, 1e-12]:
         V = hex_polygon_at_north_pole(r)
         analytic = 1.5 * math.sqrt(3.0) * (r ** 2)
-        a_cag = cagnoli_area(V)
-        a_fix = vos_chord_area(V)
-        a_cen = vos_chord_centroid_area(V)
-        r_cag = abs(a_cag - analytic) / analytic
-        r_fix = abs(a_fix - analytic) / analytic
-        r_cen = abs(a_cen - analytic) / analytic
-        print(f"  {r:>10.0e} {analytic:>13.5e} {a_cag:>13.5e} {a_fix:>13.5e} {a_cen:>13.5e}"
-              f" {r_cag:>9.1e} {r_fix:>9.1e} {r_cen:>9.1e}", flush=True)
+        a_cag  = cagnoli_area(V)
+        a_fix  = vos_chord_area(V)
+        a_stab = vos_chord_stable_fixed_area(V)
+        a_v0   = vos_chord_v0_area(V)
+        a_cen  = vos_chord_centroid_area(V)
+        r_cag  = abs(a_cag - analytic) / analytic
+        r_fix  = abs(a_fix - analytic) / analytic
+        r_stab = abs(a_stab - analytic) / analytic
+        r_v0   = abs(a_v0 - analytic) / analytic
+        r_cen  = abs(a_cen - analytic) / analytic
+        print(f"  {r:>10.0e} {analytic:>10.3e} {a_cag:>10.3e} {a_fix:>10.3e} {a_stab:>10.3e} {a_v0:>10.3e} {a_cen:>10.3e}"
+              f"  {r_cag:>7.1e} {r_fix:>7.1e} {r_stab:>7.1e} {r_v0:>7.1e} {r_cen:>7.1e}", flush=True)
 
 
 PARAM_SETS = {
