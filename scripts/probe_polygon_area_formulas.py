@@ -147,6 +147,48 @@ def vos_chord_stable_fixed_area(V: np.ndarray) -> float:
     return sum_val
 
 
+def vos_chord_v0_stable_area(V: np.ndarray) -> float:
+    """Candidate F: same as V[0] but with the user's stable-denominator
+    rewrite: den = 0.5·(|P+A|² + |P+B|² − |B−A|²). Algebraically
+    identical for unit vectors but avoids the (1 + P·V) cancellation
+    when P·V is near −1. For mu3's V[0] case, P·V_i is bounded above
+    cos(30°), so this should be bit-identical.
+    """
+    PX, PY, PZ = float(V[0][0]), float(V[0][1]), float(V[0][2])
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        ax, ay, az = float(V[i][0]), float(V[i][1]), float(V[i][2])
+        bx, by, bz = float(V[j][0]), float(V[j][1]), float(V[j][2])
+        dx = bx - ax
+        dy = by - ay
+        dz = bz - az
+        cx = ay * dz - az * dy
+        cy = az * dx - ax * dz
+        cz = ax * dy - ay * dx
+        num = PX * cx + PY * cy + PZ * cz
+        # |P+A|² stable form (no 1 + (-1+ε) cancellation possible).
+        pax = PX + ax; pay = PY + ay; paz = PZ + az
+        pbx = PX + bx; pby = PY + by; pbz = PZ + bz
+        pa2 = pax*pax + pay*pay + paz*paz
+        pb2 = pbx*pbx + pby*pby + pbz*pbz
+        d2 = dx*dx + dy*dy + dz*dz
+        den = 0.5 * (pa2 + pb2 - d2)
+        contribution = 2.0 * math.atan2(num, den)
+        y = contribution - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    if sum_val < 0.0:
+        y = 4.0 * math.pi - c
+        t = sum_val + y
+        c = (t - sum_val) - y
+        sum_val = t
+    return sum_val
+
+
 def vos_chord_v0_area(V: np.ndarray) -> float:
     """Candidate D: VOS with chord identities, P = V[0] (first vertex).
 
@@ -321,6 +363,7 @@ def step_1_cell_by_cell(factory, res=5):
         results = {"vos-chord (fixed P)": (vos_chord_area, [0.0, 0.0, 0]),
                    "vos-chord (fixed P, stable 1+P·V)": (vos_chord_stable_fixed_area, [0.0, 0.0, 0]),
                    "vos-chord (P = V[0])": (vos_chord_v0_area, [0.0, 0.0, 0]),
+                   "vos-chord (P = V[0], stable den)": (vos_chord_v0_stable_area, [0.0, 0.0, 0]),
                    "vos-chord (centroid P)": (vos_chord_centroid_area, [0.0, 0.0, 0]),
                    "vos-chord (two-pole + lune)": (vos_chord_two_pole_area, [0.0, 0.0, 0])}
         n_total = 0
@@ -356,6 +399,7 @@ def step_2_area_r_table(factories):
                                    ("vos-chord (fixed)",      vos_chord_area),
                                    ("vos-chord (fix+stab)",   vos_chord_stable_fixed_area),
                                    ("vos-chord (P=V[0])",     vos_chord_v0_area),
+                                   ("vos-chord (V[0] stable)", vos_chord_v0_stable_area),
                                    ("vos-chord (cent.)",      vos_chord_centroid_area),
                                    ("vos-chord (2pole+lune)", vos_chord_two_pole_area)]:
                 row = [f"  {label:<14s}"]

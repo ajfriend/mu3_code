@@ -295,33 +295,36 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
 
         contribution_i = 2 · atan2(num, den)
         num = P · (A_i × (A_{i+1} − A_i))
-        den = (1 + P · A_i) + (1 + P · A_{i+1}) − 0.5 · |A_{i+1} − A_i|²
+        den = ½ · (|P + A_i|² + |P + A_{i+1}|² − |A_{i+1} − A_i|²)
 
-    Two algebraic identities exploit |A| = |B| = 1 to dodge the
-    cancellation traps in the textbook VOS formula:
+    Three algebraic identities, all exploiting |X| = 1 for unit
+    vectors, dodge the cancellation traps in the textbook VOS
+    formula. They're equivalent reformulations of the standard
+    `(1 + dot)` and `dot` terms in sum-of-squares form, where every
+    intermediate is a sum of squared real numbers (no `1 − ε`
+    cancellations possible):
 
-      • A · B  =  1 − 0.5·|B − A|²       (denominator: replaces
-        the 4-way cancellation `1 + P·A + A·B + B·P` with three
-        independently-conditioned terms)
-      • A × B  =  A × (B − A)            (numerator: cross-product
+      • 1 + P·V  =  ½·|P + V|²           (each `(1 + P·V_i)` term)
+      • 1 − A·B  =  ½·|B − A|²           (the chord term)
+      • A × B    =  A × (B − A)          (numerator: cross-product
         through the small chord, avoiding cancellation on short edges)
 
     Choice of fan reference: V[0]. For any small polygon (every
     vertex within ~90° of every other), every (1 + P · A_i) is
-    bounded well away from zero — no antipodal precision loss in the
-    denominator. The polygon centroid is an alternative that handles
-    arbitrary spherical polygons (including those wrapping a
-    hemisphere), but for the convex sub-90° polygons mu3 produces,
-    V[0] is bit-identical to centroid-P at every measured resolution
-    while skipping the centroid normalize. The two edges incident to
-    V[0] contribute exactly 0 (since V[0] · (V[0] × D) = 0
-    algebraically), reducing the per-edge sum to a clean per-fan
-    triangulation around V[0].
+    bounded well away from zero. Even with the stable denominator,
+    interior-reference is preferred because it keeps per-edge
+    contributions at polygon_area/n scale (no outer cancellation
+    tower). The two edges incident to V[0] contribute exactly 0
+    (since V[0] · (V[0] × D) = 0 algebraically), reducing the
+    per-edge sum to a clean per-fan triangulation around V[0].
 
     A fixed-pole reference (e.g., south pole) is a tempting
-    simplification but breaks for polygons near the antipode of the
-    chosen pole — see ``todo/2026-04-30-spherical-polygon-area.md``
-    for the failure analysis.
+    simplification. The stable denominator avoids per-edge precision
+    loss, but the per-edge contributions are then `O(1)` lune-from-
+    pole magnitudes that cancel down to polygon_area in the outer
+    sum — at f64 the residual hits the precision floor for cells
+    smaller than ~1e-9 rad arc. Interior reference (V[0] or centroid)
+    sidesteps this entirely.
 
     Stable across all cell sizes through mu3 res ≥ 20 (verified). At
     extreme radii (~1e-9 rad), this formulation actually outperforms
@@ -332,18 +335,8 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     cell) sum to a positive value directly. The +4π fallback catches
     pathological non-convex inputs.
 
-    Path to here (see ``todo/2026-04-30-spherical-polygon-area.md``):
-      - Attempt 1: per-fan VOS, no chord identities — denominator
-        cancellation broke at ε ≲ 8e-8 (res 14+).
-      - Attempt 2: per-fan Tuynman mid-vector — same per-fan
-        structural floor.
-      - Attempt 3: per-edge Tuynman mid-vector with fixed S — the
-        unit midpoint (S+X)/|S+X| blew up for X near −S.
-      - Attempt 4: lat/lng Cagnoli (H3 port) — worked, but routed
-        every vertex through asin/atan2.
-      - Attempt 5 (this): per-edge VOS with chord identities and
-        P = V[0] — purely 3D, no transcendentals per vertex, beats
-        Cagnoli at extreme radii.
+    See ``~/work/sphere_area/notes/2026-04-30-spherical-polygon-area.qmd``
+    for the full derivation and the journey through prior attempts.
     """
     n = len(V)
     PX, PY, PZ = float(V[0][0]), float(V[0][1]), float(V[0][2])
@@ -366,11 +359,14 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
         cz = ax * dy - ay * dx
         num = PX * cx + PY * cy + PZ * cz
 
-        # den = (1 + P·A) + (1 + P·B) − 0.5 · |B − A|²
-        pa = PX * ax + PY * ay + PZ * az
-        pb = PX * bx + PY * by + PZ * bz
+        # den = ½ · (|P+A|² + |P+B|² − |B−A|²) — sum-of-squares form,
+        # avoids the `1 + (-1+ε)` cancellation when P·V is near −1.
+        pax = PX + ax; pay = PY + ay; paz = PZ + az
+        pbx = PX + bx; pby = PY + by; pbz = PZ + bz
+        pa2 = pax * pax + pay * pay + paz * paz
+        pb2 = pbx * pbx + pby * pby + pbz * pbz
         d2 = dx * dx + dy * dy + dz * dz
-        den = (1.0 + pa) + (1.0 + pb) - 0.5 * d2
+        den = 0.5 * (pa2 + pb2 - d2)
 
         contribution = 2.0 * math.atan2(num, den)
 
@@ -380,8 +376,8 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
         c = (t - sum_val) - y
         sum_val = t
 
-    # Centroid is interior to convex polygons → sum is positive
-    # directly. Fallback in case of pathological non-convex inputs.
+    # Interior reference V[0] → CCW convex polygons give positive sum
+    # directly. Fallback for pathological non-convex inputs.
     if sum_val < 0.0:
         y = 4.0 * math.pi - c
         t = sum_val + y
