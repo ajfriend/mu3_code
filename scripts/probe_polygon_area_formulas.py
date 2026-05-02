@@ -677,6 +677,35 @@ def step_4_pole_spanning_test():
         print(f"  {label:<14s}: {a:.10f}  (rel diff vs analytic lune: {rel:.2e})")
 
 
+def step_5_near_antipodal_triangle():
+    """Test triangles with near-antipodal vertices.
+
+    x = (0,0,1) [north pole], y = near south pole at angle α from -x,
+    z = (0,1,0) [equator at λ=π/2]. As α → 0, y → south pole, and the
+    spherical triangle (x, y, z) approaches half the sphere, area → π.
+
+    Tests whether the textbook vs chord forms diverge in precision
+    when one vertex pair is near-antipodal.
+    """
+    print("\n=== Step 5: near-antipodal triangle (x near antipode of y) ===")
+    print(f"  α (rad)    {'analytic ≈':>12s}  {'textbook':>13s}  {'chord(user)':>13s}  {'chord-N+textb-D':>16s}  {'textb-N+chord-D':>16s}")
+    for alpha in [1e-1, 1e-3, 1e-5, 1e-8, 1e-12]:
+        x = np.array([0.0, 0.0, 1.0])
+        y = np.array([math.sin(alpha), 0.0, -math.cos(alpha)])
+        z = np.array([0.0, 1.0, 0.0])
+        V = np.array([x, y, z])
+        # Reference: 2·atan2(sin α, 1 − cos α) — computed in extended precision
+        # via tan(α/2) identity: 1 − cos α = 2 sin²(α/2), sin α = 2 sin(α/2) cos(α/2)
+        #   so num/den = cos(α/2) / sin(α/2) = cot(α/2)
+        #   and 2·atan2(num, den) = 2·(π/2 − α/2) = π − α.
+        analytic = math.pi - alpha
+        a_tb = vos_textbook_area(V)
+        a_us = vos_user_symmetric_area(V)
+        a_h1 = vos_chord_num_textbook_den_area(V)
+        a_h2 = vos_textbook_num_chord_den_area(V)
+        print(f"  {alpha:>8.0e}  {analytic:>12.8f}  {a_tb:>13.8f}  {a_us:>13.8f}  {a_h1:>16.8f}  {a_h2:>16.8f}")
+
+
 PARAM_SETS = {
     "literature":  (1.149, 0.121, 0.170, 0.0, 0.0),
     "discrete-3":  (1.14952, 0.10836, 0.18578, 0.00020, -0.00002),
@@ -695,6 +724,7 @@ max_rel = step_1_cell_by_cell(literature_factory, res=5)
 step_2_area_r_table(factories)
 step_3_antipodal_stress()
 step_4_pole_spanning_test()
+step_5_near_antipodal_triangle()
 print(f"\nTotal time: {time.time() - t0:.1f}s")
 print(f"\n=> max relative diff (cell-by-cell at res 5): {max_rel:.3e}")
 print("   Threshold for swap: max rel diff < 1e-10.")
