@@ -187,6 +187,90 @@ def vos_textbook_area(V: np.ndarray) -> float:
     return sum_val
 
 
+def vos_chord_num_textbook_den_area(V: np.ndarray) -> float:
+    """Hybrid: chord-form NUMERATOR + textbook DENOMINATOR.
+
+        num = x · [(y − x) × (z − x)]
+        den = 1 + x·y + y·z + z·x
+
+    With x = V[0] as fan apex. If this works at high res, the chord-
+    form numerator is what saves precision (not the chord-form
+    denominator).
+    """
+    x = V[0]
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(1, n - 1):
+        y = V[i]
+        z = V[i + 1]
+        # Chord-form numerator: cross product through two chords.
+        yx0, yx1, yx2 = float(y[0]-x[0]), float(y[1]-x[1]), float(y[2]-x[2])
+        zx0, zx1, zx2 = float(z[0]-x[0]), float(z[1]-x[1]), float(z[2]-x[2])
+        cx0 = yx1 * zx2 - yx2 * zx1
+        cx1 = yx2 * zx0 - yx0 * zx2
+        cx2 = yx0 * zx1 - yx1 * zx0
+        num = float(x[0]) * cx0 + float(x[1]) * cx1 + float(x[2]) * cx2
+        # Textbook denominator: 1 + x·y + y·z + z·x.
+        xy = float(x[0]*y[0] + x[1]*y[1] + x[2]*y[2])
+        yz = float(y[0]*z[0] + y[1]*z[1] + y[2]*z[2])
+        zx = float(z[0]*x[0] + z[1]*x[1] + z[2]*x[2])
+        den = 1.0 + xy + yz + zx
+        contribution = 2.0 * math.atan2(num, den)
+        y_kahan = contribution - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    if sum_val < 0.0:
+        y_kahan = 4.0 * math.pi - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    return sum_val
+
+
+def vos_textbook_num_chord_den_area(V: np.ndarray) -> float:
+    """Hybrid: textbook NUMERATOR + chord-form DENOMINATOR.
+
+        num = x · (y × z)
+        den = 4 − ½·(|x−y|² + |y−z|² + |z−x|²)
+
+    The complement of the previous hybrid. If this works at high res,
+    the chord-form denominator was the precision-saving piece.
+    """
+    x = V[0]
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(1, n - 1):
+        y = V[i]
+        z = V[i + 1]
+        # Textbook numerator: x · (y × z).
+        cx0 = float(y[1] * z[2] - y[2] * z[1])
+        cx1 = float(y[2] * z[0] - y[0] * z[2])
+        cx2 = float(y[0] * z[1] - y[1] * z[0])
+        num = float(x[0]) * cx0 + float(x[1]) * cx1 + float(x[2]) * cx2
+        # Chord-form denominator.
+        yx0, yx1, yx2 = float(y[0]-x[0]), float(y[1]-x[1]), float(y[2]-x[2])
+        zx0, zx1, zx2 = float(z[0]-x[0]), float(z[1]-x[1]), float(z[2]-x[2])
+        zy0, zy1, zy2 = float(z[0]-y[0]), float(z[1]-y[1]), float(z[2]-y[2])
+        d_xy2 = yx0*yx0 + yx1*yx1 + yx2*yx2
+        d_yz2 = zy0*zy0 + zy1*zy1 + zy2*zy2
+        d_zx2 = zx0*zx0 + zx1*zx1 + zx2*zx2
+        den = 4.0 - 0.5 * (d_xy2 + d_yz2 + d_zx2)
+        contribution = 2.0 * math.atan2(num, den)
+        y_kahan = contribution - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    if sum_val < 0.0:
+        y_kahan = 4.0 * math.pi - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    return sum_val
+
+
 def vos_user_symmetric_area(V: np.ndarray) -> float:
     """Candidate G (user's symmetric form):
         num = x · [(y-x) × (z-x)]
@@ -457,6 +541,8 @@ def step_1_cell_by_cell(factory, res=5):
                    "vos-chord (P = V[0], stable den)": (vos_chord_v0_stable_area, [0.0, 0.0, 0]),
                    "vos-user (symmetric per-triangle)": (vos_user_symmetric_area, [0.0, 0.0, 0]),
                    "vos-textbook (no chord ids)": (vos_textbook_area, [0.0, 0.0, 0]),
+                   "vos-chord NUM + textbook DEN": (vos_chord_num_textbook_den_area, [0.0, 0.0, 0]),
+                   "vos-textbook NUM + chord DEN": (vos_textbook_num_chord_den_area, [0.0, 0.0, 0]),
                    "vos-chord (centroid P)": (vos_chord_centroid_area, [0.0, 0.0, 0]),
                    "vos-chord (two-pole + lune)": (vos_chord_two_pole_area, [0.0, 0.0, 0])}
         n_total = 0
@@ -495,6 +581,8 @@ def step_2_area_r_table(factories):
                                    ("vos-chord (V[0] stable)", vos_chord_v0_stable_area),
                                    ("vos-user (symmetric)",    vos_user_symmetric_area),
                                    ("vos-textbook (V[0])",    vos_textbook_area),
+                                   ("chord-num+textb-den",    vos_chord_num_textbook_den_area),
+                                   ("textb-num+chord-den",    vos_textbook_num_chord_den_area),
                                    ("vos-chord (cent.)",      vos_chord_centroid_area),
                                    ("vos-chord (2pole+lune)", vos_chord_two_pole_area)]:
                 row = [f"  {label:<14s}"]
