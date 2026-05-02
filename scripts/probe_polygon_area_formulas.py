@@ -147,6 +147,46 @@ def vos_chord_stable_fixed_area(V: np.ndarray) -> float:
     return sum_val
 
 
+def vos_textbook_area(V: np.ndarray) -> float:
+    """Reference: textbook VOS form with NO chord identities applied.
+
+        num = x · (y × z)
+        den = 1 + x·y + y·z + z·x
+
+    With x = V[0] as the fan apex. This is mu3's original
+    implementation (the one that broke at res 14+). Included here as
+    a baseline to quantify how much the chord form actually buys us.
+    """
+    x = V[0]
+    n = len(V)
+    sum_val = 0.0
+    c = 0.0
+    for i in range(1, n - 1):
+        y = V[i]
+        z = V[i + 1]
+        # num = x · (y × z)
+        cx0 = float(y[1] * z[2] - y[2] * z[1])
+        cx1 = float(y[2] * z[0] - y[0] * z[2])
+        cx2 = float(y[0] * z[1] - y[1] * z[0])
+        num = float(x[0]) * cx0 + float(x[1]) * cx1 + float(x[2]) * cx2
+        # den = 1 + x·y + y·z + z·x
+        xy = float(x[0]*y[0] + x[1]*y[1] + x[2]*y[2])
+        yz = float(y[0]*z[0] + y[1]*z[1] + y[2]*z[2])
+        zx = float(z[0]*x[0] + z[1]*x[1] + z[2]*x[2])
+        den = 1.0 + xy + yz + zx
+        contribution = 2.0 * math.atan2(num, den)
+        y_kahan = contribution - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    if sum_val < 0.0:
+        y_kahan = 4.0 * math.pi - c
+        t = sum_val + y_kahan
+        c = (t - sum_val) - y_kahan
+        sum_val = t
+    return sum_val
+
+
 def vos_user_symmetric_area(V: np.ndarray) -> float:
     """Candidate G (user's symmetric form):
         num = x · [(y-x) × (z-x)]
@@ -416,6 +456,7 @@ def step_1_cell_by_cell(factory, res=5):
                    "vos-chord (P = V[0])": (vos_chord_v0_area, [0.0, 0.0, 0]),
                    "vos-chord (P = V[0], stable den)": (vos_chord_v0_stable_area, [0.0, 0.0, 0]),
                    "vos-user (symmetric per-triangle)": (vos_user_symmetric_area, [0.0, 0.0, 0]),
+                   "vos-textbook (no chord ids)": (vos_textbook_area, [0.0, 0.0, 0]),
                    "vos-chord (centroid P)": (vos_chord_centroid_area, [0.0, 0.0, 0]),
                    "vos-chord (two-pole + lune)": (vos_chord_two_pole_area, [0.0, 0.0, 0])}
         n_total = 0
@@ -453,6 +494,7 @@ def step_2_area_r_table(factories):
                                    ("vos-chord (P=V[0])",     vos_chord_v0_area),
                                    ("vos-chord (V[0] stable)", vos_chord_v0_stable_area),
                                    ("vos-user (symmetric)",    vos_user_symmetric_area),
+                                   ("vos-textbook (V[0])",    vos_textbook_area),
                                    ("vos-chord (cent.)",      vos_chord_centroid_area),
                                    ("vos-chord (2pole+lune)", vos_chord_two_pole_area)]:
                 row = [f"  {label:<14s}"]
@@ -491,24 +533,22 @@ def hex_polygon_at_north_pole(angular_radius: float) -> np.ndarray:
 
 
 def step_3_antipodal_stress():
-    print("\n=== Step 3: antipodal stress (hex centered at north pole = -P_fixed) ===")
-    print(f"  {'r (rad)':>10s} {'analytic':>10s} {'cagnoli':>10s} {'fix':>10s} {'fix+stab':>10s} {'P=V[0]':>10s} {'centroid':>10s}"
-          f"  {'r_cag':>7s} {'r_fix':>7s} {'r_stab':>7s} {'r_v0':>7s} {'r_cen':>7s}")
-    for r in [1e-3, 1e-6, 1e-9, 1e-12]:
+    print("\n=== Step 3: antipodal stress (tiny hex centered at north pole) ===")
+    print(f"  {'r (rad)':>10s} {'analytic':>11s} {'cagnoli':>11s} {'textbook':>11s} {'chord(V[0])':>12s} {'chord(user)':>12s}"
+          f"   {'r_cag':>8s} {'r_text':>8s} {'r_chord':>8s} {'r_user':>8s}")
+    for r in [1e-3, 1e-5, 1e-6, 1e-8, 1e-9, 1e-12]:
         V = hex_polygon_at_north_pole(r)
         analytic = 1.5 * math.sqrt(3.0) * (r ** 2)
-        a_cag  = cagnoli_area(V)
-        a_fix  = vos_chord_area(V)
-        a_stab = vos_chord_stable_fixed_area(V)
-        a_v0   = vos_chord_v0_area(V)
-        a_cen  = vos_chord_centroid_area(V)
-        r_cag  = abs(a_cag - analytic) / analytic
-        r_fix  = abs(a_fix - analytic) / analytic
-        r_stab = abs(a_stab - analytic) / analytic
-        r_v0   = abs(a_v0 - analytic) / analytic
-        r_cen  = abs(a_cen - analytic) / analytic
-        print(f"  {r:>10.0e} {analytic:>10.3e} {a_cag:>10.3e} {a_fix:>10.3e} {a_stab:>10.3e} {a_v0:>10.3e} {a_cen:>10.3e}"
-              f"  {r_cag:>7.1e} {r_fix:>7.1e} {r_stab:>7.1e} {r_v0:>7.1e} {r_cen:>7.1e}", flush=True)
+        a_cag = cagnoli_area(V)
+        a_tb  = vos_textbook_area(V)
+        a_v0  = vos_chord_v0_area(V)
+        a_us  = vos_user_symmetric_area(V)
+        r_cag = abs(a_cag - analytic) / analytic if analytic > 0 else float('nan')
+        r_tb  = abs(a_tb - analytic) / analytic if analytic > 0 else float('nan')
+        r_v0  = abs(a_v0 - analytic) / analytic if analytic > 0 else float('nan')
+        r_us  = abs(a_us - analytic) / analytic if analytic > 0 else float('nan')
+        print(f"  {r:>10.0e} {analytic:>11.3e} {a_cag:>11.3e} {a_tb:>11.3e} {a_v0:>12.3e} {a_us:>12.3e}"
+              f"   {r_cag:>8.1e} {r_tb:>8.1e} {r_v0:>8.1e} {r_us:>8.1e}", flush=True)
 
 
 def step_4_pole_spanning_test():
