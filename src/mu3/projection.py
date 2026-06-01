@@ -98,7 +98,7 @@ class Gnomonic:
 
 # Recommended parameters from the constrained-DGGS distortion study
 # (Strategy 1b, area-optimised 3-parameter form):
-# see /Users/aj/work/2026-04-18_distort/constrained_plan.md, line 633.
+# see 2026-04-18_distort/constrained_plan.md, line 633.
 ALPHA_SLERP_DEFAULTS = (1.149, 0.121, 0.170)  # (alpha, eta, kappa)
 
 
@@ -302,7 +302,7 @@ class AlphaOnlySlerp(AlphaSlerp):
     afflicts the inherited 2D FD-Newton at triangle corners (where
     the absent ``(1+P·S)`` correction makes the 2D forward nearly
     rank-deficient). See ``alpha_slerp_followups.md`` in the sibling
-    distortion repo at ``/Users/aj/work/2026-04-18_distort/`` for the
+    distortion repo at ``2026-04-18_distort/`` for the
     full cost/quality analysis.
     """
 

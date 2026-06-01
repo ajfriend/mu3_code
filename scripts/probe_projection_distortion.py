@@ -7,7 +7,7 @@ Per-cell metrics (over hex cells only — pentagons are anomalies):
   - per-cell ang_dev = max |interior_angle − 120°| (degrees)
 
 Mirrors experiment_alpha_hex_compare.py from the sibling distortion repo
-(``/Users/aj/work/2026-04-18_distort/scripts/``).
+(``2026-04-18_distort/scripts/``).
 """
 
 import sys
