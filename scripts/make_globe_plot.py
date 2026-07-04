@@ -10,16 +10,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _globe_template import render_globe_page, unit_to_lnglat
+from _globe_template import icosa_edge_coords, render_globe_page, unit_to_lnglat
 
 from mu3 import cell_boundary, cells_at_res, dodec
 
 
 def main():
-    icosa_lines = [
-        [unit_to_lnglat(dodec.normals[i]), unit_to_lnglat(dodec.normals[j])]
-        for (i, j) in dodec.icosa_edges
-    ]
+    icosa_lines = icosa_edge_coords()
 
     panels = []
     for r in (0, 1, 2, 3):

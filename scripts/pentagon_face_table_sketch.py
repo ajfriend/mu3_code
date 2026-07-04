@@ -46,8 +46,7 @@ def all_tuples() -> list[tuple[int, int, int]]:
 
 # =====================================================================
 # Neighbor pattern. Derived once by hand for the reference pentagon
-# (0, +1, +1) via direct geometry; see reports/nearest-dodecahedron-face.md
-# for the argument.
+# (0, +1, +1) via direct geometry.
 #
 # CCW order starting from the primary-direction target:
 # =====================================================================

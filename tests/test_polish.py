@@ -1,7 +1,7 @@
 """Tests for the spherical point-in-polygon polish primitive.
 
-Phase 1 of the projection-independent latlng_to_cell plan
-(todo/indexing-as-projection-independent-polish.md). These tests drive
+Phase 1 of the projection-independent latlng_to_cell plan. These
+tests drive
 ``_polish_cell_sphere`` directly since it is an internal API.
 """
 

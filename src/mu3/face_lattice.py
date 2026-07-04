@@ -23,8 +23,6 @@ Aperture-7 per-resolution rotation alternates (Class II / Class III):
 even resolutions are unrotated relative to res 0, odd resolutions are
 rotated by ``arg(s7b) ≈ +19.106°``.
 
-See ``reports/nearest-dodecahedron-face.md`` (Option A primary direction)
-and ``figures/primary_direction_convention.png``.
 """
 
 import cmath

@@ -1,12 +1,20 @@
-"""Tests for the geometric ring-1 neighbor walk.
+"""Ring-1 invariants — the implementation-agnostic ground truth.
 
-Most checks are integer / combinatorial. The sphere-geometry check at the
-end confirms the walk's output is also geometrically consistent -- ring-1
-neighbor centers sit at roughly a single resolution-dependent edge length
-on the unit sphere.
+These tests define what a correct ring-1 walk *is*, without reference
+to the implementation's internals: ring sizes, validity, symmetry,
+self-exclusion, the sphere-distance band, CCW closure, and the
+primary-direction phase convention. (If a second implementation ever
+exists — e.g. a compiled port — parametrize these over both.)
+
+The distance band deserves emphasis: the historically dangerous
+failure — resolving a phantom to the wrong stitch twin — places a
+"neighbor" at roughly sqrt(3) times the true neighbor distance, far
+outside the max/min < 1.3 band. Any ring passing all invariants here
+is the right ring.
 """
 
 import numpy as np
+import pytest
 
 from mu3 import (
     cell_center,
@@ -17,13 +25,12 @@ from mu3 import (
     is_pentagon,
     is_valid_cell,
 )
-from mu3.cell import _eisenstein_center
+from mu3.cell import _eisenstein_center, _project
 from mu3.face_lattice import digit_offset, get_rot
-from mu3.neighbor import _has_leading_zero_d1, _step_to_cell
 
 
 def _test_cells():
-    for res in [0,1,2,3]:
+    for res in [0, 1, 2, 3]:
         yield from cells_at_res(res)
 
 
@@ -45,10 +52,12 @@ def test_all_neighbors_are_valid():
 
 
 def test_ring1_symmetry():
-    """c' ∈ ring1(c) ⇒ c ∈ ring1(c')."""
-    for c in _test_cells():
-        for nb in cell_ring1(c):
-            assert c in cell_ring1(nb), (c, nb)
+    """c' ∈ ring1(c) ⇒ c ∈ ring1(c'), checked over one precomputed
+    map (each ring computed exactly once)."""
+    rings = {c: cell_ring1(c) for c in _test_cells()}
+    for c, ring in rings.items():
+        for nb in ring:
+            assert c in rings[nb], (c, nb)
 
 
 def test_ring1_excludes_self():
@@ -72,6 +81,13 @@ def test_ring1_sphere_distance():
         _check_neighbor_lengths(c)
 
 
+def _tangent_toward(cell, p3d):
+    """Unit tangent at ``cell``'s center pointing toward ``p3d``."""
+    c = cell_center(cell)
+    t = p3d - (p3d @ c) * c
+    return t / np.linalg.norm(t)
+
+
 def _check_neighbors_ccw(cell):
     """Neighbors should be ordered CCW around the source cell on the
     sphere AND span exactly one full revolution.
@@ -83,12 +99,7 @@ def _check_neighbors_ccw(cell):
     equal 2π (the loop closes around the source exactly once).
     """
     c = cell_center(cell)
-    proj = []
-    for nb in cell_ring1(cell):
-        n = cell_center(nb)
-        n = n - (n @ c) * c
-        n = n / np.linalg.norm(n)
-        proj.append(n)
+    proj = [_tangent_toward(cell, cell_center(nb)) for nb in cell_ring1(cell)]
 
     angles = []
     n = len(proj)
@@ -114,22 +125,105 @@ def test_ring1_ccw_order():
 
 
 def test_ring1_ends_at_primary_direction():
-    """The last neighbor in cell_ring1's output is the primary-direction
-    neighbor (the cell reached by walking D=6 at res >= 1, or the
-    primary-direction pentagon ``vertex_neighbors[base][0]`` at res 0)."""
+    """The last neighbor in the ring is the primary-direction neighbor.
+
+    Implementation-agnostic phase check: the expected direction is a
+    half-step along D=6 in the flat frame, rendered to the sphere (the
+    half-step stays inside the cell, so it stitches consistently with
+    the center). The ring's last cell must be the one angularly
+    closest to that direction — neighbors are ~60 degrees apart, so
+    "closest" is unambiguous.
+
+    Pentagon-adjacent hexes whose ring collapsed to 5 are skipped: the
+    collapsed direction may be D=6 itself, in which case "last" is
+    legitimately a different neighbor.
+    """
     for c in _test_cells():
         ring = cell_ring1(c)
         last = ring[-1]
-        if cell_resolution(c) == 0:
+        res = cell_resolution(c)
+        if res == 0:
             primary = (int(dodec.neighbors[c[0]][0]),)
             assert last == primary, (c, last, primary)
-        else:
-            # Compute what the D=6 walk produces. If it's a non-phantom
-            # non-self cell, it must equal `last`.
-            z_C = _eisenstein_center(c[1:])
-            rot_N = get_rot(cell_resolution(c))
-            z_n = z_C + digit_offset[6] / rot_N
-            nb = _step_to_cell(z_n, c[0], cell_resolution(c))
-            cell_t = tuple(int(x) for x in c)
-            if not _has_leading_zero_d1(nb) and nb != cell_t:
-                assert last == nb, (c, last, nb)
+            continue
+        if not is_pentagon(c) and len(ring) == 5:
+            continue
+        z_half = _eisenstein_center(c[1:]) \
+            + digit_offset[6] / (2 * get_rot(res))
+        t6 = _tangent_toward(c, _project(z_half, c[0]))
+        best = max(ring, key=lambda nb:
+                   _tangent_toward(c, cell_center(nb)) @ t6)
+        assert last == best, (c, last, best)
+
+
+# --- named killer regressions ------------------------------------------
+#
+# Members come from the adversarial-zoo registry (tests/adversarial.py,
+# where each family's full story lives). Each pins a specific wrong
+# seam-disambiguation rule that a plausible "simplification" of
+# neighbor._resolve would reintroduce (see the module
+# docstring there).
+
+
+def test_phantom_corner_family():
+    """3-hex phantom corners — the family that killed the old
+    NEIGHBOR_TRANS walk. Subsumed by the full sweeps above; kept named
+    for its history."""
+    from adversarial import phantom_corner_cells
+    for cell in phantom_corner_cells():
+        _check_neighbor_lengths(cell)
+        _check_neighbors_ccw(cell)
+
+
+def test_seam_crossing_cw():
+    """CW seam-crossing ring-1 adjacencies. Defeats the endpoint-side
+    rule (deciding the stitch from where the walk *landed* instead of
+    where it came from)."""
+    from adversarial import seam_crossing_pairs
+    for src, nb in seam_crossing_pairs():
+        assert nb in cell_ring1(src), (src, nb)
+
+
+def test_post_hop_wedge_ccw():
+    """Phantoms reached after a cross-pentagon hop. Defeats deciding
+    the stitch from the source in its *original* frame — the arrow
+    must be carried through the hop."""
+    from adversarial import post_hop_pairs
+    for src, nb in post_hop_pairs():
+        assert nb in cell_ring1(src), (src, nb)
+
+
+def test_cell_ring1_validation():
+    """Invalid cells raise instead of resolving a phantom position to
+    a plausible-looking (and wrong) ring — matching step()'s contract."""
+    for bad in [(0, 1), (12,), (0, 7), ()]:
+        with pytest.raises(ValueError):
+            cell_ring1(bad)
+
+
+def test_step_equals_position_walk_exhaustive():
+    """The carry fast tier must equal the pure position walk on EVERY
+    cell x direction, res 0-3.
+
+    Honest scope: seam/phantom rows are vacuous (step's fallback IS
+    _position_step), so the teeth are (a) every fast-path result
+    matches the walk, and (b) no case is wrongly ROUTED to the fast
+    path. Mis-routing the other way (fast-eligible sent to fallback)
+    is a perf bug, not a correctness bug — caught by the routing
+    floor: at res 3 the carry is expected to absorb ~90% of steps
+    (measured 90.09%; scripts/verify_carry_walk.py extends this gate
+    to res 0-6, 8.2M steps)."""
+    from mu3.eisenstein import carry_digits, first_nonzero_digit
+    from mu3.neighbor import _position_step, step
+
+    fast = total = 0
+    for res in range(4):
+        for c in cells_at_res(res):
+            for d in (1, 2, 3, 4, 5, 6):
+                assert step(c, d) == _position_step(c, res, d), (c, d)
+                if res == 3:
+                    total += 1
+                    cd = carry_digits(c[1:], d)
+                    if cd is not None and first_nonzero_digit(cd) != 1:
+                        fast += 1
+    assert fast / total > 0.85, f'fast-path routing eroded: {fast/total:.1%}'

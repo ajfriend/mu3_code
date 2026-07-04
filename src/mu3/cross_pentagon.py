@@ -1,16 +1,17 @@
-"""Cross-pentagon re-rooting and digit-string recovery.
+"""The cross-pentagon transition table and its holonomy cocycle.
 
-Two peer primitives, both pure integer arithmetic in the Eisenstein
-ring ``Z[omega]``:
+Primitives:
 
-- :func:`canonicalize` -- given an Eisenstein point ``z`` in pentagon
-  ``p``'s flat lattice frame, decide which pentagon's territory ``z``
-  actually sits in, re-root accordingly, and apply the +60 deg
-  intra-stitch if the result lands in the canonical pentagon's deleted
-  wedge.
+- :data:`CROSS_PENTAGON` / :data:`TAU` -- the pentagon-to-pentagon
+  frame transitions, as index tuples and as exact :class:`~mu3.p6.P6`
+  group elements respectively. The cocycle consistency laws (and the
+  derived +60 deg stitch) are asserted at import by
+  :func:`_check_cocycle`.
 - :func:`z_to_cell` -- inverse of :func:`mu3.cell._eisenstein_center`:
   recover a digit string at a given resolution by iterated
-  ``divmod_ei`` from finest to coarsest level.
+  ``divmod_ei`` from finest to coarsest level. (Float; used by
+  plotting scripts. The exact runtime path is
+  ``eisenstein.extract_digits``.)
 
 Cross-pentagon table (precomputed at module load):
 
@@ -32,28 +33,29 @@ roots of unity) means the re-rooting transform is purely
 integer-valued in the lattice -- no floats, no rationalization.
 """
 
-import math
-
 from . import dodec
+from .eisenstein import (
+    UNITS as EIS_UNITS,
+    ZERO as EIS_ZERO,
+    ZETA as EIS_ZETA,
+    Eis,
+    get_rot_eis,
+)
 from .face_lattice import (
     digit_for_offset,
-    digit_offset,
     divmod_ei,
     get_rot,
-    omega,
     s7a,
     s7b,
 )
+from .p6 import IDENTITY, P6, STITCH, rotation_about
 
 
-# Six Eisenstein units, ordered by angle (multiples of 60 deg CCW from +x).
-EISENSTEIN_UNITS: tuple[complex, ...] = (
-    1,           # idx 0: 0 deg
-    1 + omega,   # idx 1: 60 deg
-    omega,       # idx 2: 120 deg
-    -1,          # idx 3: 180 deg
-    -1 - omega,  # idx 4: 240 deg
-    -omega,      # idx 5: 300 deg
+# Six Eisenstein units, ordered by angle (multiples of 60 deg CCW from
+# +x); the float view of eisenstein.UNITS, derived so the exact table
+# is the single source of truth.
+EISENSTEIN_UNITS: tuple[complex, ...] = tuple(
+    u.to_complex() for u in EIS_UNITS
 )
 
 # Neighbor index k (0..4) -> EISENSTEIN_UNITS idx for the 5 corner
@@ -78,54 +80,6 @@ def _build_cross_pentagon_table() -> tuple:
 
 
 CROSS_PENTAGON = _build_cross_pentagon_table()
-
-
-_STITCH_ROT = EISENSTEIN_UNITS[1]   # +60 deg CCW, the intra-pentagon stitch
-_DELETED_HI_RAD = math.pi / 3
-
-
-def _maybe_stitch(z: complex) -> complex:
-    """Rotate by +60 deg CCW if ``z`` is in the deleted wedge ``[0, 60) deg``."""
-    if z == 0j:
-        return z
-    a = math.atan2(z.imag, z.real) % (2 * math.pi)
-    if 0.0 <= a < _DELETED_HI_RAD:
-        return z * _STITCH_ROT
-    return z
-
-
-def canonicalize(z: complex, p: int) -> tuple[int, complex]:
-    """``(p_canonical, z_canonical)`` for an Eisenstein point ``z`` in ``p``'s frame.
-
-    Composes:
-
-    1. Territory check across ``p``'s 5 neighbors -- re-root if ``z`` is in a
-       neighbor's territory (shift+rotate, both Eisenstein units).
-    2. Intra-stitch: +60 deg if the result lands in ``[0, 60) deg``.
-
-    Idempotent on cell-center positions:
-    ``canonicalize(canonicalize(z, p)) == canonicalize(z, p)``.
-    """
-    # Territory check: project z onto each unit-direction-to-neighbor.
-    # Threshold 0.5 = perpendicular bisector to that neighbor. Strict
-    # ``>``: a cell center never lies exactly on the bisector, so a
-    # projection of exactly 0.5 indicates a phantom corner on the icosa
-    # edge (handled by the caller's un-fold retry, not by tiebreaking).
-    best_proj = 0.5
-    best_k = -1
-    for k in range(5):
-        q_center = EISENSTEIN_UNITS[NEIGHBOR_ANGLE_IDX[k]]
-        proj = (z * q_center.conjugate()).real    # |q_center| = 1
-        if proj > best_proj:
-            best_proj = proj
-            best_k = k
-
-    if best_k < 0:
-        return p, _maybe_stitch(z)
-
-    q, q_center_idx, rot_idx, _ = CROSS_PENTAGON[p][best_k]
-    z_local = (z - EISENSTEIN_UNITS[q_center_idx]) / EISENSTEIN_UNITS[rot_idx]
-    return q, _maybe_stitch(z_local)
 
 
 def z_to_cell(p: int, z: complex, res: int) -> tuple:
@@ -159,3 +113,141 @@ def z_to_cell(p: int, z: complex, res: int) -> tuple:
             f"z does not lie cleanly in {p}'s frame at res {res}"
         )
     return (p, *digits)
+
+
+# ---------------------------------------------------------------------------
+# The holonomy cocycle: CROSS_PENTAGON retyped as p6 group elements.
+#
+# TAU[p][k] is the frame transition for hopping from pentagon p to its
+# k-th neighbor q = dodec.neighbors[p][k], as an exact P6 element:
+#
+#     z_q = zeta^{-rot_idx} * z_p + zeta^{aq}
+#
+# (the translation part is p's center as seen from q). This is the
+# existing table retyped, not new data; canonicalize's float hop
+# ``(z - EISENSTEIN_UNITS[qci]) / EISENSTEIN_UNITS[ri]`` is the same map.
+#
+# BRANCH CUTS — why the consistency laws below look the way they do.
+# The idealized cocycle condition would read "product of the 5
+# transitions around a pentagon == the stitch". That
+# is NOT literally true for the stored taus: each chart carries a
+# deleted-wedge cut ending at its k=0 corner (the corner between the
+# primary-direction neighbor and the next one CCW), and loop products
+# pick up a stitch factor each time the loop crosses a cut. The exact,
+# verified laws — uniform over all 12 pentagons — are:
+#
+#   * edge symmetry: tau(q->p) == tau(p->q)^{-1}          (60 pairs)
+#   * corner triple products p -> q -> r -> p, where q, r are p's
+#     neighbors k and k+1 (a loop around a triangle corner, based in
+#     p's frame), classified by k:
+#       k=0    -> STITCH = P6(1, 0)   (p's own cut ends at this corner;
+#                                      this product DERIVES the stitch)
+#       k=1, 3 -> IDENTITY            (no cut ends here; the flat case)
+#       k=2    -> rotation_about(1, zeta^3)  (q's cut ends here;
+#                                      zeta^3 = q's center in p's frame)
+#       k=4    -> rotation_about(1, zeta^0)  (r = neighbors[p][0]'s cut)
+#   * pentagon 6-factor CCW loop p -> q0 -> ... -> q4 -> p:
+#       P6(2, omega)  — two cut crossings' worth of stitch, not one.
+#
+# Do not "simplify" these expected values back to the idealized
+# equation; the k-classification is the real condition.
+# ---------------------------------------------------------------------------
+
+
+def _build_tau() -> tuple:
+    out = []
+    for p in range(12):
+        row = []
+        for k in range(5):
+            _q, _ap, rot_idx, j = CROSS_PENTAGON[p][k]
+            aq = NEIGHBOR_ANGLE_IDX[j]
+            row.append(P6(-rot_idx, EIS_UNITS[aq]))
+        out.append(tuple(row))
+    return tuple(out)
+
+
+TAU = _build_tau()
+
+
+def tau_between(a: int, b: int) -> P6:
+    """The transition ``a -> b`` for adjacent pentagons ``a``, ``b``."""
+    k = list(dodec.neighbors[a]).index(b)
+    return TAU[a][k]
+
+
+def cut_rays(base: int, res: int) -> list[tuple[int, Eis, Eis]]:
+    """The six deleted-wedge cut rays near ``base``, as exact
+    ``(owner, apex, unit_direction)`` triples in ``base``'s scaled
+    res-N frame: its own cut (apex at the origin, direction ``zeta``)
+    and each neighbor pentagon's cut (apex at ``zeta^angle * GN``)
+    pulled back through the inverse TAU rotation. ``owner`` is the
+    pentagon whose chart carries the cut — its identity travels with
+    the ray, so consumers never decode it from list position.
+
+    This is the executable form of the branch-cut geometry documented
+    in the comment block above — each pentagon's cut ends at its k=0
+    corner and runs along its own chart's 60-degree direction.
+    """
+    gn = get_rot_eis(res)
+    rays = [(base, EIS_ZERO, EIS_ZETA)]
+    for j, a in enumerate(NEIGHBOR_ANGLE_IDX):
+        apex = EIS_UNITS[a] * gn
+        direction = EIS_UNITS[TAU[base][j].inverse().u] * EIS_ZETA
+        rays.append((int(dodec.neighbors[base][j]), apex, direction))
+    return rays
+
+
+def _corner_product(p: int, k: int) -> P6:
+    """Holonomy of the loop ``p -> q -> r -> p`` around the triangle
+    corner between neighbors ``k`` and ``k+1``, based in ``p``'s frame."""
+    q = dodec.neighbors[p][k]
+    r = dodec.neighbors[p][(k + 1) % 5]
+    return tau_between(r, p).compose(tau_between(q, r)).compose(
+        tau_between(p, q))
+
+
+# The stitch, DERIVED from three cross-pentagon transitions rather
+# than hardcoded (_check_cocycle asserts it equals STITCH == P6(1, 0)).
+DERIVED_STITCH = _corner_product(0, 0)
+
+# The expected loop products — the single copy of the branch-cut-aware
+# spec, consumed by _check_cocycle at import and re-asserted with
+# readable parametrized failures in tests/test_cocycle.py.
+CORNER_EXPECTED: dict[int, P6] = {
+    0: STITCH,
+    1: IDENTITY,
+    2: rotation_about(1, EIS_UNITS[NEIGHBOR_ANGLE_IDX[2]]),
+    3: IDENTITY,
+    4: rotation_about(1, EIS_UNITS[NEIGHBOR_ANGLE_IDX[0]]),
+}
+PENTAGON_LOOP_EXPECTED = P6(2, EIS_UNITS[2])   # zeta^2 = omega
+
+
+def _check_cocycle() -> None:
+    """Build-time consistency spec for the cocycle (see comment block
+    above). A future edit that breaks orientation anywhere in
+    dodec.neighbors / CROSS_PENTAGON fails here, loudly, at import."""
+    for p in range(12):
+        for k in range(5):
+            q = dodec.neighbors[p][k]
+            assert tau_between(q, p) == tau_between(p, q).inverse(), \
+                f'edge symmetry broken at p={p}, k={k}'
+
+    for p in range(12):
+        for k in range(5):
+            prod = _corner_product(p, k)
+            assert prod == CORNER_EXPECTED[k], \
+                f'corner condition broken at p={p}, k={k}: {prod}'
+
+    for p in range(12):
+        cycle = [p, *dodec.neighbors[p], p]
+        prod = IDENTITY
+        for a, b in zip(cycle, cycle[1:]):
+            prod = tau_between(a, b).compose(prod)
+        assert prod == PENTAGON_LOOP_EXPECTED, \
+            f'pentagon loop broken at p={p}: {prod}'
+
+    assert DERIVED_STITCH == STITCH, DERIVED_STITCH
+
+
+_check_cocycle()

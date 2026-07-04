@@ -1,247 +1,338 @@
-"""Ring-1 neighbor walk via canonicalize + z_to_cell.
+"""Ring-1 neighbor walk and point location via the holonomy cocycle —
+exact integer arithmetic, no floats in the combinatorics.
 
-For each cell at res N, step in each of the 6 digit-offset directions.
-For pentagon-adjacent hex cells, one or two of those steps land at a
-*phantom corner* -- a position in the lattice that isn't a cell
-center because one of the surrounding hexes is the deleted-d=1
-phantom. We detect this when ``z_to_cell`` fails (non-zero root
-residue) and recover by un-folding: rotate the position by -60 deg
-in the canonical pentagon's frame, re-canonicalize, and try again.
-The un-fold maps the phantom corner to its real-cell partner across
-the icosa triangle.
+Instead of resolving seam ambiguities from 3D geometry, the walk
+*carries the groupoid arrow* — it transports the source cell's center
+(or the query point, for point location) through every frame change
+along with the step endpoint, and that transported pair decides every
+ambiguity deterministically. (The
+earlier geometric implementation — sphere-distance twin picks,
+cross-product tiebreaks — was retired after matching this walk with
+exact ordered-list equality on every cell at res 0-6, ~1.37M cells;
+see git history.)
 
-Pentagon-adjacent hex cells return 5 neighbors (the deleted slot
-collapses via the +60 deg intra-stitch self-loop); other hex cells
-return 6.
+State is ``(p, Z, witness)``: current pentagon frame ``p``, developed
+step endpoint ``Z`` (exact :class:`~mu3.eisenstein.Eis` scaled to
+res-N lattice units, ``Z = z * get_rot(N)``), and a seam-side witness
+transported through every frame change alongside ``Z``. The pair
+``(Z, witness)`` is the p6 arrow in point form — a p6 element is
+determined by the images of two points. One event loop
+(:func:`_resolve`) serves both entry points; only the witness differs:
+:class:`_ExactWitness` (ring walks — the transported source center)
+and :class:`_FloatWitness` (point location — the unsnapped query, with
+the CW tie nudge).
+
+Why no sphere-distance disambiguation is needed
+-----------------------------------------------
+
+A phantom digit string (leading nonzero digit 1) means the developed
+endpoint sits in the ghost subtree straddling the pentagon's deleted-
+wedge seam. Its two digit-rotation twins are *different surface
+points*; which one the walk reached is decided by whether the walked
+segment crossed the cut ray (clockwise through the 60-degree ray, so
+the canonical position is ``zeta**-1 * Z``) or entered from the glue
+side (``zeta * Z``). That bit is exactly which side of the seam *line*
+the witness lies on — ``cw_side``.
+
+The endpoint alone is provably insufficient (fails for seam-crossing
+walks like ``(p, 2) -> (p, 6)``), and the source in its *original*
+frame is insufficient after a cross-pentagon hop (fails for
+``(p, 6) -> (q0, 2)``) — hence the arrow must be carried. Both wrong
+rules are pinned by named regressions in ``tests/test_neighbor.py``.
+
+The earlier algebraic walk (``NEIGHBOR_TRANS``, removed in ``ec7048c``)
+failed at these seams because digits + root carry lose the seam-side
+bit. Its bottom-up carry is now revived as the interior fast tier —
+:func:`_step_fast` owns the dispatch rule.
 """
 
-import cmath
-import math
-from functools import lru_cache
-from typing import Sequence
+from typing import Protocol, Sequence
 
-from . import icosahedron
-from .cell import _eisenstein_center, cell_resolution
-from .cross_pentagon import (
-    CROSS_PENTAGON,
-    EISENSTEIN_UNITS,
-    NEIGHBOR_ANGLE_IDX,
-    canonicalize,
-    z_to_cell,
+from . import dodec
+from .cell import cell_resolution, is_valid_cell
+from .cross_pentagon import NEIGHBOR_ANGLE_IDX, TAU
+from .eisenstein import (
+    DIGIT_OFFSET,
+    UNIT_EXP,
+    UNITS,
+    ZERO,
+    ZETA,
+    ZETA_INV,
+    Eis,
+    carry_digits,
+    extract_digits,
+    first_nonzero_digit,
+    from_complex,
+    get_rot_eis,
+    scaled_center,
 )
-from .face_lattice import digit_offset, get_rot, omega, rotate_digit_ccw
+from .face_lattice import rotate_digit_ccw
+from .p6 import P6
+
+# Root residue zeta^m -> neighbor index k (deleted m=1 handled apart):
+# the inverse of the angle-index table.
+_M_TO_K = {a: k for k, a in enumerate(NEIGHBOR_ANGLE_IDX)}
+
+# A ring-1 walk resolves in at most: extract, stitch, extract, hop,
+# extract, phantom fix — i.e. <= 2 transformations between extracts.
+# Algebraically: (1+omega) * (-omega) = 1, so un-stitching a deleted-
+# direction residue produces at most a primary-direction residue,
+# which then hops in one step.
+_MAX_ITERS = 3
 
 
-# -60 deg rotation = 1 / exp(i*60 deg) = 1 / (1 + omega) = -omega in Z[omega].
-_UNFOLD_ROT = -omega
+_ZETA_INV_C = ZETA_INV.to_complex()
 
 
-@lru_cache(maxsize=None)
-def _res0_neighbors(base: int) -> tuple[tuple[int, ...], ...]:
-    """The 5 neighbor pentagons at res 0, in CCW order around ``base``
-    ending at the primary-direction neighbor (``vertex_neighbors[base][0]``).
+class _Witness(Protocol):
+    """The seam-side oracle :func:`_resolve` carries alongside the
+    endpoint: it answers every stitch/phantom question (``cw_side``)
+    and is transported through every frame change (``stitch``,
+    ``hop``). The two implementations differ ONLY in arithmetic
+    domain and tie policy."""
 
-    This matches the higher-resolution walk order, which iterates
-    ``D = 1..6`` and so ends at D=6 = the primary-direction step.
+    def cw_side(self, gn: Eis) -> bool: ...
+
+    def stitch(self, u: Eis) -> None: ...
+
+    def hop(self, g: P6, gn: Eis) -> None: ...
+
+
+class _ExactWitness:
+    """Ring-walk witness: the transported source cell center, exact.
+
+    Tie rule: a source EXACTLY on the seam line (``sp.b == 0``, e.g. a
+    240-degree seam-line source) resolves CCW — the strict ``> 0``.
+    (The float witness's tie is deliberately CW — see
+    :class:`_FloatWitness`.)
     """
-    nbrs = icosahedron.vertex_neighbors()[base]
-    # Cycle so primary-direction neighbor (k=0) is last.
-    return tuple((int(b),) for b in (*nbrs[1:], nbrs[0]))
+
+    __slots__ = ('s',)
+
+    def __init__(self, s: Eis):
+        self.s = s
+
+    def cw_side(self, gn: Eis) -> bool:
+        """True iff the witness lies on the CW side of the deleted-
+        wedge seam line (the 60-degree ray through the root center) —
+        i.e. the stitch resolves by ``zeta**-1``.
+
+        Multiplying by ``conj(gn)`` first undoes the odd-resolution
+        Class III rotation (+19.106 deg), putting the seam back on the
+        exact lattice 60-degree line; forgetting it passes even
+        resolutions and fails odd ones.
+        """
+        sp = ZETA_INV * (self.s * gn.conj())
+        return sp.b > 0
+
+    def stitch(self, u: Eis) -> None:
+        self.s = u * self.s
+
+    def hop(self, g: P6, gn: Eis) -> None:
+        self.s = g.apply_scaled(self.s, gn)
 
 
-# Ring-1 walks need at most two transformations to reach a canonical cell:
-# at most one un-fold (residue ``digit_offset[1]``) followed by at most one
-# cross-pentagon hop (residue ``digit_offset[D]`` for ``D in {2..6}``).
-# Algebraically: ``(1+omega) * (-omega) = 1 = digit_offset[6]``, so an un-fold
-# of a deleted-direction residue produces at most a primary-direction residue,
-# which then hops in one step. Anything beyond two transformations indicates a
-# bug (e.g. a ratio-rotation mismatch or a non-ring-1 caller).
-_MAX_TRANSFORMS = 2
+class _FloatWitness:
+    """Point-location witness: the unsnapped float query (consumed by
+    ``resolve_position``; see its docstring for why the witness is
+    needed at all).
 
-
-# Mapping digit ``D`` (2..6) to the k-index of the corresponding neighbor
-# pentagon. ``digit_offset[D]`` equals ``EISENSTEIN_UNITS[idx]`` where
-# ``idx`` is the angle index; ``k`` satisfies ``NEIGHBOR_ANGLE_IDX[k] == idx``.
-_D_TO_K = {6: 0, 2: 1, 3: 2, 4: 3, 5: 4}
-
-
-def _z_to_cell_with_residue(p: int, z: complex, res: int):
-    """Like :func:`z_to_cell`, but returns ``(digits, residue)`` rather than
-    raising on non-zero root residue.
+    Tie rule — the ONE deliberate difference from the exact witness: a
+    query ON the cut line resolves CW, matching the forward convention
+    that the deleted wedge is ``[0, 60)`` degrees — a query on the
+    primary ray forward-stitches exactly onto the cut, and its cell's
+    canonical position is the un-stitched (CW) rep. Since the witness
+    is float (projection round-trip noise ~1e-13 relative), "on the
+    cut" is implemented by nudging the decision boundary a relative
+    1e-9 into the CCW side: the closed cut belongs to CW, the anti-cut
+    ray (180 degrees, ``sp.real < 0``) stays CCW.
     """
-    from .face_lattice import digit_for_offset, divmod_ei, get_rot, s7a, s7b
 
-    if abs(z) < 1e-12:
-        return [0] * res, 0j
+    __slots__ = ('w',)
 
-    digits = [0] * res
-    cur = z * get_rot(res)
-    for k in range(res, 0, -1):
-        ratio = s7b if (k % 2) == 1 else s7a
-        cur, r = divmod_ei(cur, ratio)
-        d = digit_for_offset(r)
-        if d < 0:
+    def __init__(self, w: complex):
+        self.w = w
+
+    def cw_side(self, gn: Eis) -> bool:
+        sp = _ZETA_INV_C * (self.w * gn.to_complex().conjugate())
+        return sp.imag > -1e-9 * sp.real
+
+    def stitch(self, u: Eis) -> None:
+        self.w = u.to_complex() * self.w
+
+    def hop(self, g: P6, gn: Eis) -> None:
+        # Float mirror of P6.apply_scaled (t * gn stays exact, then
+        # floats) — the complex domain keeps it from routing through
+        # the method itself.
+        self.w = UNITS[g.u].to_complex() * self.w + (g.t * gn).to_complex()
+
+
+def _resolve(
+    p: int, z: Eis, witness: _Witness, res: int
+) -> tuple[tuple[int, ...], int]:
+    """Resolve a developed position to its canonical cell, carrying the
+    arrow. ``z`` = scaled endpoint (exact); ``witness`` answers every
+    seam-side question (stitch direction, phantom twin) and is
+    transported through every frame change alongside ``z`` — an
+    :class:`_ExactWitness` for ring walks, a :class:`_FloatWitness`
+    for point location. The single event loop for both.
+
+    Returns ``(cell, rot)`` where ``rot`` (an int mod 6) is the net
+    rotation the walk applied to the developed picture — the arrow's
+    rotation part. A physical direction vector expressed in the
+    starting representation maps to the returned cell's canonical
+    representation by ``zeta**rot``; equivalently, a direction that
+    reads as digit ``e`` at the start reads as
+    ``rotate_digit_ccw(e, rot)`` at the destination. Each stitch
+    contributes its unit exponent, each cross-pentagon hop contributes
+    ``TAU[p][k].u``, and the final phantom digit rotation contributes
+    its step count (rotating digits CCW by ``n`` = rotating the
+    position by ``zeta**n``).
+    """
+    gn = get_rot_eis(res)
+    rot = 0
+    for _ in range(_MAX_ITERS):
+        digits, root = extract_digits(z, res)
+        if root == ZERO:
+            if first_nonzero_digit(digits) == 1:
+                # Phantom: pick the twin on the witness's side of the
+                # seam. Rotating about the root center commutes with
+                # digit extraction, so rotate the digits directly
+                # (0 -> 0 keeps deep zeros fixed).
+                steps = 5 if witness.cw_side(gn) else 1
+                digits = [rotate_digit_ccw(d, steps) for d in digits]
+                rot += steps
+            return (p, *digits), rot % 6
+        m = UNIT_EXP.get(root)
+        if m is None:
             raise RuntimeError(
-                f"_z_to_cell_with_residue: bad remainder at level {k}: {r}"
+                f'_resolve: non-unit root residue {root} at p={p}, z={z}'
             )
-        digits[k - 1] = d
-    return digits, cur
-
-
-def _step_to_cell(z_n: complex, base: int, res: int) -> tuple[int, ...]:
-    """Resolve a walked position ``z_n`` to a canonical cell tuple.
-
-    Residue-driven absorption -- no canonicalize, no BFS:
-
-    1. Run divmod from finest to coarsest level in the current pentagon
-       ``p``'s frame. This always extracts a digit string; the residue
-       at the root is ``digit_offset[D]`` for some ``D in {0..6}``.
-    2. If ``D == 0``: residue is zero, cell is ``(p, *digits)``. Done.
-    3. If ``D == 1``: the deleted-direction carry -- the position has
-       a +60 deg stitched twin in the deleted wedge. Replace ``z`` with
-       ``z * -omega`` (rotate -60 deg into the deleted wedge) and loop.
-    4. If ``D in {2..6}``: the canonical cell lives in ``p``'s direction-D
-       neighbor. Hop via :data:`CROSS_PENTAGON` and loop.
-
-    Each iteration either rotates ``z`` or hops to a neighbor pentagon --
-    both isometric on the underlying 3D point. For ring-1 walks the loop
-    converges in at most :data:`_MAX_TRANSFORMS` = 2 transformations
-    (algebraic bound; see comment on the constant). The post-loop assert
-    catches any future regression that violates the bound.
-    """
-    from .face_lattice import digit_for_offset
-
-    p = base
-    z = z_n
-    residue: complex = 0j
-    # ``_MAX_TRANSFORMS + 1`` iterations: each iteration runs divmod and
-    # possibly returns; up to ``_MAX_TRANSFORMS`` transformations applied
-    # between divmods.
-    for _ in range(_MAX_TRANSFORMS + 1):
-        digits, residue = _z_to_cell_with_residue(p, z, res)
-        if abs(residue) < 1e-9:
-            return (p, *digits)
-        D = digit_for_offset(residue)
-        if D == 1:
-            z = z * _UNFOLD_ROT     # rotate -60 deg into the deleted wedge
-            continue
-        if D in _D_TO_K:
-            k = _D_TO_K[D]
-            q, qci, ri, _ = CROSS_PENTAGON[p][k]
-            z = (z - EISENSTEIN_UNITS[qci]) / EISENSTEIN_UNITS[ri]
-            p = q
-            continue
-        raise RuntimeError(
-            f"_step_to_cell: unexpected residue {residue} (D={D}) "
-            f"at p={p}, z={z}"
-        )
+        if m == 1:
+            # Deleted root direction: stitch toward the witness's side.
+            if witness.cw_side(gn):
+                u, du = ZETA_INV, 5
+            else:
+                u, du = ZETA, 1
+            z = u * z
+            witness.stitch(u)
+            rot += du
+        else:
+            # Cross-pentagon hop: apply tau (scaled) to both points.
+            k = _M_TO_K[m]
+            g = TAU[p][k]
+            z = g.apply_scaled(z, gn)
+            witness.hop(g, gn)
+            p = dodec.neighbors[p][k]
+            rot += g.u
     raise AssertionError(
-        f"_step_to_cell: ring-1 walks should converge in <= "
-        f"{_MAX_TRANSFORMS} transformations, but residue {residue} "
-        f"remained for z_n={z_n} from base={base} at res={res}"
+        f'_resolve: walks must resolve within {_MAX_ITERS} '
+        f'extractions; stuck at p={p}, z={z}'
     )
 
 
-def _has_leading_zero_d1(cell_t: tuple[int, ...]) -> bool:
-    """True iff ``cell_t``'s digits have leading-zero d=1 (the deleted
-    slot, excluded from canonical cell indexing)."""
-    digits = cell_t[1:]
-    first_nz = next((d for d in digits if d != 0), None)
-    return first_nz == 1
+def resolve_position(p: int, w: complex, res: int) -> tuple[int, ...]:
+    """Canonical cell for a scaled query position — the point-location
+    entry (consumed by ``index.vec3_to_cell_raw``).
+
+    ``w`` is the query in pentagon ``p``'s frame scaled to res-N
+    lattice units (``z_query * get_rot(res)`` with ``z_query`` from
+    ``_sphere_to_flat``). It is snapped to the nearest lattice point
+    exactly (``from_complex``), and then doubles as the *witness*: it
+    plays the role the transported source center plays in the ring
+    walk — every seam-side question is answered by which side of the
+    cut the witness lies (:class:`_FloatWitness`, including the CW tie
+    rule), through the same event loop (:func:`_resolve`).
+
+    In the initial frame the witness looks redundant: inverse
+    projection returns rendered (post-forward-stitch) coordinates,
+    where a phantom-form snap always resolves CW (its CW twin is the
+    same 3D point by injectivity of the forward map — which is also
+    why the old sphere-distance twin pick always chose it). But a
+    cross-pentagon hop lands the position near the *neighbor's* cut in
+    coordinates that are not rendered ones, and there the twin choice
+    genuinely varies — hence the witness.
+    """
+    cell, _ = _resolve(p, from_complex(w), _FloatWitness(w), res)
+    return cell
+
+
+def _position_step(
+    cell_t: tuple, res: int, d: int
+) -> tuple[tuple[int, ...], int]:
+    """The pure position walk for one step: develop the endpoint,
+    resolve with the arrow. The seam-event fallback of
+    :func:`_step_fast`, and the oracle the carry tier is verified
+    against (exhaustive equality test + scripts/verify_carry_walk.py).
+    """
+    z_c = scaled_center(cell_t[1:])
+    return _resolve(
+        cell_t[0], z_c + DIGIT_OFFSET[d], _ExactWitness(z_c), res
+    )
+
+
+def _step_fast(
+    cell_t: tuple, res: int, d: int
+) -> tuple[tuple[int, ...], int]:
+    """One walk step: digit-carry fast path for the flat interior,
+    exact arrow walk for every seam event.
+
+    The dispatch is exact — no float, no margin: the carry escaping
+    the root (a root-level residue: stitch/hop territory) or landing
+    on a phantom-FORM string (leading nonzero digit 1: the witness
+    twin fix, including the pentagon ``d=1`` collapse) IS the seam
+    event. Otherwise the carry result is exactly what the position
+    walk would extract, with a trivial arrow (``rot == 0``) — pinned
+    by the exhaustive carry-vs-walk equality test.
+    """
+    digits = carry_digits(cell_t[1:], d)
+    if digits is not None and first_nonzero_digit(digits) != 1:
+        return (cell_t[0], *digits), 0
+    return _position_step(cell_t, res, d)
+
+
+def step(cell: Sequence[int], d: int) -> tuple[tuple[int, ...], int]:
+    """One ring-1 walk from ``cell`` in digit direction ``d``:
+    ``(dest, rot)``.
+
+    ``rot`` (mod 6) is the arrow's rotation part between the two
+    cells' frames: a physical direction that reads as digit ``e`` from
+    ``cell`` reads as ``rotate_digit_ccw(e, rot)`` from ``dest``. In
+    particular the reverse edge's direction is
+    ``rotate_digit_ccw(opposite(d), rot)`` — see ``mu3.edge``.
+
+    Permissive at the deleted direction: walking ``d=1`` out of a
+    pentagon-center cell collapses onto the ``d=2`` neighbor (the
+    stitch self-loop). The edge layer forbids that pair; this walk
+    primitive reports where the step lands.
+    """
+    cell_t = tuple(int(x) for x in cell)
+    d = int(d)
+    if not 1 <= d <= 6:
+        raise ValueError(f'step: direction must be in 1..6, got {d}')
+    if not is_valid_cell(cell_t):
+        raise ValueError(f'step: invalid cell {cell_t}')
+    return _step_fast(cell_t, cell_resolution(cell_t), d)
 
 
 def cell_ring1(cell: Sequence[int]) -> list[tuple[int, ...]]:
-    """All ring-1 neighbors of ``cell`` at the same resolution.
+    """All ring-1 neighbors of ``cell``, CCW around the source on the
+    sphere with the primary-direction neighbor last (walk order
+    D = 1..6), computed exactly via the cocycle.
 
-    Walks 1 unit step in each of the 6 digit directions ``D = 1..6``,
-    in that order. When a walk lands at a phantom (deleted-form digit
-    string), the canonical cell at that 3D point depends on the walk
-    direction relative to the pentagon center: rotate the phantom's
-    digits CCW or CW by 1 according to the angular sense of the walk
-    (``cross(z_source, step) >= 0`` -> CCW, else CW).
-
-    The output is in CCW order around the source on the sphere, ending
-    at the primary-direction neighbor (the cell reached by walking
-    ``D=6``). Walks that collapse via the +60 deg stitch self-loop or
-    duplicate a direct neighbor are skipped.
-
-    Pentagon-center cells and pentagon-adjacent hex cells return 5
-    neighbors; other hex cells return 6.
-
-    At res 0 the neighbors are the 5 icosa-vertex pentagons adjacent
-    to ``cell[0]``, in CCW order with the primary-direction neighbor
-    (``vertex_neighbors[base][0]``) last -- matching the D=6-last
-    convention at higher resolutions.
+    Pentagon cells (any resolution, including res 0) return 5
+    neighbors — the deleted-direction walk collapses onto the d=2
+    neighbor and dedups; hex cells return 6.
     """
     cell_t = tuple(int(x) for x in cell)
-    if cell_resolution(cell_t) == 0:
-        return list(_res0_neighbors(cell_t[0]))
-
-    base = cell_t[0]
-    digits = cell_t[1:]
+    if not is_valid_cell(cell_t):
+        raise ValueError(f'cell_ring1: invalid cell {cell_t}')
     res = cell_resolution(cell_t)
-    z_C = _eisenstein_center(digits)
-    rot_N = get_rot(res)
 
     seen: set[tuple[int, ...]] = {cell_t}
     out: list[tuple[int, ...]] = []
-
-    # Source 3D position for sphere-distance disambiguation.
-    from .cell import cell_center
-    src_3d = cell_center(cell_t)
-
-    # Pass 1: walk all 6 directions in D=1..D=6 order, classifying each
-    # as direct or phantom. Collect the direct cells into a set so
-    # phantom-twin selection in Pass 2 can avoid duplicating them.
-    raw: list[tuple[str, ...]] = []
-    direct_set: set[tuple[int, ...]] = set()
     for D in (1, 2, 3, 4, 5, 6):
-        step = digit_offset[D] / rot_N
-        z_n = z_C + step
-        nb = _step_to_cell(z_n, base, res)
-        if _has_leading_zero_d1(nb):
-            raw.append(("phantom", z_n, step, nb))
-        else:
-            raw.append(("direct", nb))
-            direct_set.add(nb)
-
-    # Pass 2: emit in walk order (CCW around the source on the sphere),
-    # disambiguating phantoms with knowledge of all direct neighbors.
-    for entry in raw:
-        if entry[0] == "direct":
-            nb = entry[1]
-        else:
-            _, z_n, step, raw_nb = entry
-            # Pick between CCW and CW digit-rotation twins.
-            # The +60 deg intra-pentagon stitch is a 3D identification,
-            # but in the flat frame the "correct" rotation direction
-            # depends on the source's position on the icosa surface.
-            ccw = (raw_nb[0], *(rotate_digit_ccw(d, 1) for d in raw_nb[1:]))
-            cw = (raw_nb[0], *(rotate_digit_ccw(d, 5) for d in raw_nb[1:]))
-            # Prefer a twin that isn't self and isn't already a direct
-            # neighbor -- those are real new ring-1 neighbors.
-            ccw_avail = ccw != cell_t and ccw not in direct_set
-            cw_avail = cw != cell_t and cw not in direct_set
-            if ccw_avail and not cw_avail:
-                nb = ccw
-            elif cw_avail and not ccw_avail:
-                nb = cw
-            elif ccw_avail and cw_avail:
-                ccw_3d = cell_center(ccw)
-                cw_3d = cell_center(cw)
-                d_ccw = float(((src_3d - ccw_3d) ** 2).sum())
-                d_cw = float(((src_3d - cw_3d) ** 2).sum())
-                if abs(d_ccw - d_cw) < 1e-12:
-                    # On a tie, break with the angular sense of the walk.
-                    cross = z_C.real * step.imag - z_C.imag * step.real
-                    nb = ccw if cross >= 0 else cw
-                else:
-                    nb = ccw if d_ccw < d_cw else cw
-            else:
-                # Both are self or duplicates -- skip (deleted-direction
-                # collapse).
-                continue
-
+        nb, _ = _step_fast(cell_t, res, D)
         if nb in seen:
             continue
         seen.add(nb)
