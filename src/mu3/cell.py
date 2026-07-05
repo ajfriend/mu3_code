@@ -142,47 +142,50 @@ def _z_from_wedge_barycentric(beta: np.ndarray, d: int) -> complex:
     return z_aligned / _wedge_align_rot(d)
 
 
+def _pick_wedge(p3d: Vec3, base: int) -> int:
+    """Digit ``d ∈ {2..6}`` whose 60° wedge contains ``p3d``, from the two
+    nearest ``base``-neighbors — no transcendental.
+
+    Every icosahedron base→neighbor edge is the same length, so
+    ``V[n]·p3d = A + B·cos(φₙ)`` with ``A, B`` fixed across the 5 neighbors
+    and ``φₙ`` the point's azimuth offset from spoke ``n``. That is monotone
+    in ``|φₙ|``, so the two largest neighbor dot products are exactly the two
+    spokes bracketing the point — i.e. the wedge, with no tangent frame and
+    no ``atan2``. (These 5 neighbor dots are a subset of the
+    ``argmax(V·p3d)`` pass that picks ``base``; a compiled caller can share
+    that one pass — the reference just recomputes them, which is cheap.)
+
+    Recovering the digit inverts :func:`_projection`'s pairing
+    ``n_ccw = n[(d-1) % 5]``: wedge ``d`` owns the consecutive spoke pair
+    ``(d-2, d-1) = (j, (j+1) % 5)``, so a top-two ``{i0, i1}`` with
+    ``i1 = (i0+1) % 5`` gives ``d = i0 + 2``. A non-adjacent top-two only
+    arises at the pentagon centre, where every wedge is valid and the
+    downstream spherical polish is the authority.
+    """
+    nd = icosahedron.vertices()[icosahedron.vertex_neighbors()[base]] @ p3d
+    order = np.argsort(nd)
+    i0, i1 = int(order[-1]), int(order[-2])          # nearest, 2nd-nearest
+    j = i0 if (i0 + 1) % 5 == i1 else i1             # CW spoke of the pair
+    return j + 2
+
+
 def _sphere_to_flat(p3d: Vec3, base: int) -> complex:
     """Inverse of :func:`_project`: 3D unit vector inside ``base``'s spherical
     territory → Eisenstein ``z`` in ``base``'s flat frame.
 
-    Identifies which of the 5 incident icosa triangles around ``base``
-    contains ``p3d`` by trying each ``d ∈ {2..6}`` and accepting the one
-    whose barycentric weights are all non-negative (within tolerance).
-    Then runs the active :class:`Projection`'s ``to_bary`` on that
-    triangle and converts the barycentric back to ``z`` in d's flat wedge.
+    ``base = argmax(V·p3d)`` fixes the pentagon; :func:`_pick_wedge` fixes
+    the wedge from the same dot products; one projection inverse gives the
+    barycentric, converted back to ``z`` in that wedge's flat frame. The
+    wedge pick is exact — the point lies in ``base``'s Voronoi cell, hence
+    inside the picked triangle — so no wedge search is needed.
 
     The returned ``z`` is in canonical post-stitch form (angle in
     ``[60°, 360°)`` at any non-degenerate point); the deleted wedge
     ``[0°, 60°)`` is unreachable here by construction.
     """
-    eps = 1e-9
-    best_d = -1
-    best_beta: np.ndarray | None = None
-    best_min = -float("inf")
-    for d in range(2, 7):
-        proj = _projection(base, d)
-        try:
-            beta = proj.to_bary(p3d)
-        except RuntimeError:
-            continue
-        m = float(beta.min())
-        if m >= -eps:
-            return _z_from_wedge_barycentric(beta, d)
-        if m > best_min:
-            best_min = m
-            best_d = d
-            best_beta = beta
-    # No triangle reported strictly-non-negative barycentric. This happens
-    # for points exactly on a shared edge between two triangles, where
-    # numerical noise pushes one barycentric slightly negative. Return the
-    # best available — caller's polish step will catch any sign error.
-    if best_d < 0 or best_beta is None:
-        raise RuntimeError(
-            f"_sphere_to_flat: no incident triangle of base {base} "
-            f"contains {p3d}"
-        )
-    return _z_from_wedge_barycentric(best_beta, best_d)
+    d = _pick_wedge(p3d, base)
+    beta = _projection(base, d).to_bary(p3d)
+    return _z_from_wedge_barycentric(beta, d)
 
 
 def _eisenstein_center(digits: Sequence[int]) -> complex:
