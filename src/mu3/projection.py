@@ -219,6 +219,93 @@ class AlphaSlerp:
         )
 
 
+_WARPED_KARCHER_DEFAULTS = (0.0344, 0.0107, 0.0087)
+
+
+class WarpedKarcher:
+    """Reweighted Karcher-mean face map with a closed-form inverse.
+
+    The point ``p`` for barycentric ``β`` is defined implicitly by the
+    reweighted Riemannian-centroid condition::
+
+        Σ βᵢ · cᵢ(p) · log_p(Vᵢ) = 0,     Σ βᵢ = 1
+
+    with a symmetric per-vertex reweight
+    ``cᵢ(p) = exp(Σₖ λₖ (dᵢᵏ − mean dᵏ))``, ``dᵢ = θᵢ − mean θ``,
+    ``θᵢ = arccos(p·Vᵢ)``. Because ``cᵢ`` depends only on ``p``:
+
+    - ``to_bary`` (sphere → β, the point-location direction) is a single
+      3×3 linear solve — no Newton, no iteration;
+    - edges map to great-circle arcs exactly for any positive ``cᵢ``;
+    - the reweight ``λ`` tunes cell area toward equal-area.
+
+    ``to_sphere`` (β → sphere) is the implicit direction and uses Picard
+    iteration — the dual of :class:`AlphaSlerp` (closed-form forward,
+    iterative inverse). The reweight is fit for the equilateral icosahedron
+    face; a guard rejects non-equilateral triangles.
+    """
+
+    def __init__(self, v0, v1, v2, lam=_WARPED_KARCHER_DEFAULTS) -> None:
+        self.V = np.stack([np.asarray(v, dtype=float) for v in (v0, v1, v2)])
+        self.lam = tuple(float(x) for x in lam)
+        c01 = float(self.V[0] @ self.V[1])
+        c12 = float(self.V[1] @ self.V[2])
+        c20 = float(self.V[2] @ self.V[0])
+        if not (abs(c01 - c12) < 1e-12 and abs(c12 - c20) < 1e-12):
+            raise ValueError(
+                'WarpedKarcher reweight is fit for equilateral (icosa) faces; '
+                f'pairwise V·V = {c01:.6g}, {c12:.6g}, {c20:.6g}.')
+
+    def _logs(self, p):
+        ts, ths = [], []
+        for Vi in self.V:
+            c = float(np.clip(p @ Vi, -1.0, 1.0))
+            u = Vi - c * p
+            nu = np.linalg.norm(u)
+            if nu < 1e-14:
+                ts.append(np.zeros(3)); ths.append(0.0)
+            else:
+                th = math.acos(c)
+                ts.append(th * u / nu); ths.append(th)
+        return ts, ths
+
+    def _reweight(self, ths):
+        d = np.asarray(ths) - float(np.mean(ths))
+        poly = np.zeros(3)
+        for k, lk in enumerate(self.lam, start=1):
+            poly = poly + lk * (d ** k - float(np.mean(d ** k)))
+        return np.exp(poly)
+
+    def to_sphere(self, beta, iters: int = 24) -> Vec3:
+        b = np.asarray(beta, dtype=float)
+        p = self.V.T @ b
+        p = p / np.linalg.norm(p)
+        for _ in range(iters):
+            ts, ths = self._logs(p)
+            c = self._reweight(ths)
+            w = b[0] * c[0] * ts[0] + b[1] * c[1] * ts[1] + b[2] * c[2] * ts[2]
+            nw = np.linalg.norm(w)
+            if nw < 1e-15:
+                break
+            p = math.cos(nw) * p + math.sin(nw) * (w / nw)
+        return p / np.linalg.norm(p)
+
+    def to_bary(self, p: Vec3) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        ts, ths = self._logs(p)
+        c = self._reweight(ths)
+        a = [c[i] * ts[i] for i in range(3)]
+        ref = (np.array([1.0, 0.0, 0.0]) if abs(p[0]) < 0.9
+               else np.array([0.0, 1.0, 0.0]))
+        e1 = ref - (ref @ p) * p
+        e1 = e1 / np.linalg.norm(e1)
+        e2 = np.cross(p, e1)
+        A = np.array([[a[i] @ e1 for i in range(3)],
+                      [a[i] @ e2 for i in range(3)],
+                      [1.0, 1.0, 1.0]])
+        return np.linalg.solve(A, np.array([0.0, 0.0, 1.0]))
+
+
 class AlphaSlerpExtended(AlphaSlerp):
     """AlphaSlerp + higher-order interior polynomial correction.
 
