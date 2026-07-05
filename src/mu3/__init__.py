@@ -1,3 +1,5 @@
+__version__ = "0.0.1"
+
 from .projection import Projection, Gnomonic, Vec3
 from .index import (
     latlng_to_cell,

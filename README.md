@@ -18,6 +18,12 @@ A prototype Discrete Global Grid System (DGGS).
 
 `mu3` is self-contained — no dependency on dggrid or other DGGS libraries.
 
+## Install
+
+```
+pip install git+https://github.com/ajfriend/mu3_code.git
+```
+
 ## Layout
 
 ```
