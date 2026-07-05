@@ -13,13 +13,13 @@ from .cell import (
     _polish_boundary,
     _sphere_to_flat,
     cell_boundary,
-    cell_center,
 )
-from .face_lattice import get_rot, rotate_digit_ccw, round_ei
-from .neighbor import _has_leading_zero_d1, _step_to_cell, cell_ring1
+from .face_lattice import get_rot
+from .neighbor import cell_ring1, resolve_position
+from .projection import Vec3
 
 
-def latlng_to_vec(lat_deg, lng_deg) -> np.ndarray:
+def latlng_to_vec3(lat_deg, lng_deg) -> np.ndarray:
     """Batched lat/lng (degrees) to unit 3-vector. Trailing axis is size 3."""
     lat = np.deg2rad(np.asarray(lat_deg, dtype=float))
     lng = np.deg2rad(np.asarray(lng_deg, dtype=float))
@@ -34,13 +34,13 @@ def latlng_to_cell(lat_deg, lng_deg, res: int = 0) -> tuple[int, ...]:
     For batched res-0 lookups (the previous ndarray-returning shortcut),
     use :func:`_latlng_to_cell_detailed` directly.
     """
-    p = latlng_to_vec(lat_deg, lng_deg)
+    p = latlng_to_vec3(lat_deg, lng_deg)
     if p.ndim > 1:
         raise NotImplementedError(
             "batched latlng_to_cell not yet implemented; "
             "use _latlng_to_cell_detailed for batched res-0 lookups"
         )
-    return vec_to_cell(p, res)
+    return vec3_to_cell(p, res)
 
 
 def _latlng_to_cell_detailed(p: np.ndarray):
@@ -73,70 +73,64 @@ def _latlng_to_cell_detailed(p: np.ndarray):
     return final.reshape(shape), candidate.reshape(shape)
 
 
-def vec_to_cell(p3d: np.ndarray, res: int = 0) -> tuple:
+def vec3_to_cell(p3d: Vec3, res: int = 0) -> tuple:
     """Scalar 3D unit vector -> canonical cell tuple at the given resolution.
 
-    Wrapper around :func:`vec_to_cell_polished`. This is the function you
+    Wrapper around :func:`vec3_to_cell_polished`. This is the function you
     want by default. ``latlng_to_cell`` is a thin wrapper over this.
     """
-    return vec_to_cell_polished(p3d, res)
+    return vec3_to_cell_polished(p3d, res)
 
 
-def vec_to_cell_raw(p3d: np.ndarray, res: int) -> tuple:
-    """Forward pipeline only -- argmax base, snap to lattice, twin-disambiguate.
+def vec3_to_cell_raw(p3d: Vec3, res: int) -> tuple:
+    """Forward pipeline only -- argmax base, exact snap, exact resolve.
     No spherical polish.
 
     The returned cell is *geometrically close* to ``p3d`` but may not
     contain it: it can be off by at most one ring-1 hop. Use
-    :func:`vec_to_cell_polished` (or :func:`vec_to_cell`) for the
+    :func:`vec3_to_cell_polished` (or :func:`vec3_to_cell`) for the
     contained-cell guarantee.
 
     Steps:
 
     1. argmax over icosa vertices = base pentagon.
-    2. ``_sphere_to_flat`` inverse-projects p3d to a flat z in base's frame.
-    3. Snap z to the nearest lattice point at resolution ``res`` and run
-       ``_step_to_cell`` to extract the digit string.
-    4. If the result has leading-d=1 (z_C lies in base's deleted wedge --
-       valid at higher res via the Gosper wiggle, see Section 4 of
-       reports/surface-mediated-atlas.md), pick the rotation twin
-       (CCW or CW) geographically closer to ``p3d``.
+    2. ``_sphere_to_flat`` inverse-projects p3d to a flat z in base's
+       frame; scale to res-N lattice units.
+    3. ``neighbor.resolve_position`` snaps to the nearest lattice
+       point exactly and resolves to the canonical cell via the
+       holonomy cocycle, with the unsnapped query as the seam-side
+       witness. Phantom twins (leading-d=1 snaps -- the deleted-wedge
+       Gosper wiggle) are decided by the witness's
+       side of the cut, not by geometry.
     """
     V = icosahedron.vertices()
     base = int(np.argmax(V @ p3d))
     if res == 0:
         return (base,)
-    z = _sphere_to_flat(p3d, base)
-    rot_N = get_rot(res)
-    z_snapped = round_ei(z * rot_N) / rot_N
-    candidate = _step_to_cell(z_snapped, base, res)
-    if _has_leading_zero_d1(candidate):
-        ccw = (candidate[0],
-               *(rotate_digit_ccw(d, 1) for d in candidate[1:]))
-        cw = (candidate[0],
-              *(rotate_digit_ccw(d, 5) for d in candidate[1:]))
-        ccw_3d = cell_center(ccw)
-        cw_3d = cell_center(cw)
-        candidate = ccw if np.linalg.norm(ccw_3d - p3d) < np.linalg.norm(cw_3d - p3d) else cw
-    return candidate
+    w = _sphere_to_flat(p3d, base) * get_rot(res)
+    return resolve_position(base, w, res)
 
 
-def vec_to_cell_polished(p3d: np.ndarray, res: int) -> tuple:
-    """:func:`vec_to_cell_raw` + single-hop spherical polish.
+def vec3_to_cell_polished(p3d: Vec3, res: int) -> tuple:
+    """:func:`vec3_to_cell_raw` + single-hop spherical polish.
 
-    The 1-ring around the raw candidate is sufficient buffer: forward-
-    projection error is bounded by less than half a cell-edge length, so
-    the candidate is always either correct or shares an edge with the
-    correct cell. At res 0 polish is a no-op (raw is already the
-    spherical Voronoi region of an icosa vertex).
+    The 1-ring around the raw candidate is sufficient buffer. This is
+    a theorem whose HYPOTHESIS is a property of the active projection:
+    flat and spherical cell corners agree exactly, so the mismatch is
+    the sagitta of pulled-back geodesic edges, and one hop suffices
+    while the worst sagitta stays under half the lattice spacing. The
+    hypothesis is measured and asserted (with headroom) by
+    ``tests/test_one_hop_contract.py`` — a projection swap that erodes
+    the margin fails there, by name. At res 0 polish is a no-op (raw
+    is already the spherical Voronoi region of an icosa vertex).
     """
-    candidate = vec_to_cell_raw(p3d, res)
+    candidate = vec3_to_cell_raw(p3d, res)
     if res == 0:
         return candidate
     return _polish(p3d, candidate)
 
 
-def _polish(p3d: np.ndarray, cell: tuple) -> tuple:
+def _polish(p3d: Vec3, cell: tuple) -> tuple:
     """If ``p3d`` is inside ``cell``'s spherical boundary, returns ``cell``
     unchanged. Otherwise returns the ring-1 neighbor across the violated
     edge.

@@ -14,6 +14,14 @@ from typing import Protocol
 
 import numpy as np
 
+# The package-wide currency for 3D positions: a point on the unit
+# sphere as a plain numpy array — shape (3,), float64, unit norm.
+# An annotation, not a wrapper: values stay ordinary ndarrays. It
+# annotates the point-passing surface (single points only — batched
+# (M, 3) returns like cell_boundary stay np.ndarray); it lives here
+# because projection is where 3D enters the system.
+Vec3 = np.ndarray
+
 
 class Projection(Protocol):
     """Swappable spherical-triangle / barycentric projection.
@@ -21,16 +29,17 @@ class Projection(Protocol):
     Implementations take three unit 3-vectors ``(V0, V1, V2)`` (CCW
     around the triangle) and expose ``to_sphere`` / ``to_bary``. Both
     directions consume and emit plain ``numpy`` arrays of shape ``(3,)``
-    — barycentric ``β = (β0, β1, β2)`` summing to 1, or unit 3-vectors.
+    — barycentric ``β = (β0, β1, β2)`` summing to 1, or unit
+    :data:`Vec3` sphere points.
     """
 
     def __init__(self, v0, v1, v2) -> None: ...
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         """Barycentric β -> unit-sphere point."""
         ...
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         """Unit-sphere point -> barycentric β on (V0, V1, V2)."""
         ...
 
@@ -85,12 +94,12 @@ class Gnomonic:
         self.n = self._g.n
         self._d_plane = float(self.V[0] @ self.n)
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         b = np.asarray(beta, dtype=float)
         v = b[0] * self.V[0] + b[1] * self.V[1] + b[2] * self.V[2]
         return v / np.linalg.norm(v)
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         q = p * (self._d_plane / float(p @ self.n))
         return _bary_from_offset(self._g, q - self.V[0])
@@ -145,7 +154,7 @@ class AlphaSlerp:
         self._u = u_raw / np.linalg.norm(u_raw)
         self._v = np.cross(self.n, self._u)
 
-    def to_sphere(self, beta) -> np.ndarray:
+    def to_sphere(self, beta) -> Vec3:
         b = np.asarray(beta, dtype=float)
         P = float(b[0] * b[1] * b[2])
         S = self.eta + self.kappa * (b - 1.0 / 3.0)
@@ -168,7 +177,7 @@ class AlphaSlerp:
         diff = self.to_sphere(beta) - q
         return np.array([diff @ self._u, diff @ self._v])
 
-    def to_bary(self, p: np.ndarray,
+    def to_bary(self, p: Vec3,
                 tol_residual: float = 1e-14,
                 tol_step: float = 1e-13,
                 max_iters: int = 20,
@@ -238,7 +247,7 @@ class AlphaSlerpExtended(AlphaSlerp):
         self.lambd = float(lambd)
         self.mu = float(mu)
 
-    def to_sphere(self, beta) -> np.ndarray:
+    def to_sphere(self, beta) -> Vec3:
         b = np.asarray(beta, dtype=float)
         P = float(b[0] * b[1] * b[2])
         delta = b - 1.0 / 3.0
@@ -324,7 +333,7 @@ class AlphaOnlySlerp(AlphaSlerp):
                 "non-equilateral triangles; use AlphaSlerp for those."
             )
 
-    def to_bary(self, p: np.ndarray,
+    def to_bary(self, p: Vec3,
                 tol: float = 1e-13,
                 max_iters: int = 20) -> np.ndarray:
         """Sphere → barycentric via face-plane projection + 1D Newton on W.
@@ -627,7 +636,7 @@ class IVEAProjection:
             bIsA = not bIsA
         return A, B, C, Pa, Pb, Pc, bIsA
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         beta = np.asarray(beta, dtype=float)
         subTri = self._classify_subtri(beta)
         A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
@@ -665,7 +674,7 @@ class IVEAProjection:
         b1 = h - b2
         return np.array([b0, b1, b2])
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         # Classify by face-bary of the orthogonal projection to face plane.
         face_bary = self._warm_start_face_bary(p)
@@ -735,7 +744,7 @@ class AlphaIVEAProjection(IVEAProjection):
         b2oh = _cubic_inverse_unit(self.gamma, self._w0_g, b2oh_w)
         return np.array([1.0 - h, h * (1.0 - b2oh), h * b2oh])
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         beta = np.asarray(beta, dtype=float)
         subTri = self._classify_subtri(beta)
         A, B, C, Pa, Pb, Pc, bIsA = self._resolve_subtri(subTri)
@@ -743,7 +752,7 @@ class AlphaIVEAProjection(IVEAProjection):
         return self._subtri_to_sphere(self._warp(b_sub), A, B, C, bIsA,
                                        _IVEA_PARALLELEPIPED_V)
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         face_bary = self._warm_start_face_bary(p)
         subTri = self._classify_subtri(face_bary)
@@ -760,8 +769,7 @@ class LambertBaryProjection(IVEAProjection):
     Map: face barycentric β → planar Lambert point (linear combination
     of the Lambert images of the face vertices) → sphere via inverse
     Lambert. C∞ smooth and fully closed-form, intended as a simplified
-    variant of "Schwarz-Christoffel + Lambert + radial correction"
-    (see todo/2026-04-30-projection-decision.md for context).
+    variant of "Schwarz-Christoffel + Lambert + radial correction".
 
     The simplification skips the Schwarz-Christoffel step. **This breaks
     at the face boundary**: Lambert maps the spherical face edges to
@@ -817,12 +825,12 @@ class LambertBaryProjection(IVEAProjection):
         t_hat = (x * self._lam_e1 + y * self._lam_e2) / r
         return cos_d * c + sin_d * t_hat
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         b = np.asarray(beta, dtype=float)
         P_L = b[0] * self._VL[0] + b[1] * self._VL[1] + b[2] * self._VL[2]
         return self._lambert_to_sphere(P_L)
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         P_L = self._sphere_to_lambert(p)
         sol = self._lam_M_inv @ (P_L - self._VL[0])
@@ -876,7 +884,7 @@ class KarcherProjection(IVEAProjection):
         self._max_iter = max_iter
         self._tol_step = tol_step
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         b = np.asarray(beta, dtype=float)
         # Warm start: normalize the linear combo (gnomonic-ish).
         p = b[0] * self.V[0] + b[1] * self.V[1] + b[2] * self.V[2]
@@ -892,7 +900,7 @@ class KarcherProjection(IVEAProjection):
             p = p / float(np.linalg.norm(p))
         return p
 
-    def to_bary(self, p: np.ndarray) -> np.ndarray:
+    def to_bary(self, p: Vec3) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         for i in range(3):
             if float(p @ self.V[i]) > 1.0 - 1e-15:
@@ -957,7 +965,7 @@ class TunedKarcherProjection(KarcherProjection):
         S = self.eta + self.kappa * (b - 1.0 / 3.0)
         return b * (1.0 + P * S)
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         b = np.asarray(beta, dtype=float)
         w = self._adjusted_weights(b)
         p = w[0] * self.V[0] + w[1] * self.V[1] + w[2] * self.V[2]
@@ -973,7 +981,7 @@ class TunedKarcherProjection(KarcherProjection):
             p = p / float(np.linalg.norm(p))
         return p
 
-    def to_bary(self, p: np.ndarray, max_outer: int = 10,
+    def to_bary(self, p: Vec3, max_outer: int = 10,
                 tol_outer: float = 1e-13) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         for i in range(3):
@@ -1049,7 +1057,7 @@ class KarcherPolyProjection(KarcherProjection):
         P = float(b[0] * b[1] * b[2])
         return b * (1.0 + P * self._S(b))
 
-    def to_sphere(self, beta: np.ndarray) -> np.ndarray:
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
         b = np.asarray(beta, dtype=float)
         w = self._adjusted_weights(b)
         p = w[0] * self.V[0] + w[1] * self.V[1] + w[2] * self.V[2]
@@ -1065,7 +1073,7 @@ class KarcherPolyProjection(KarcherProjection):
             p = p / float(np.linalg.norm(p))
         return p
 
-    def to_bary(self, p: np.ndarray, max_outer: int = 10,
+    def to_bary(self, p: Vec3, max_outer: int = 10,
                 tol_outer: float = 1e-13) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         for i in range(3):

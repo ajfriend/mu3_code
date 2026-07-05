@@ -361,3 +361,13 @@ def render_globe_page(*, title, info_html, panels, output_path: Path, layout="si
     print(f"wrote {output_path}")
     print(f"size: {output_path.stat().st_size / 1024:.1f} KB")
     print(f"open with: open {output_path}")
+
+
+def icosa_edge_coords():
+    """The icosahedron edge skeleton as lnglat line segments — the
+    shared base layer of the globe scripts (style stays per-script)."""
+    from mu3 import dodec
+    return [
+        [unit_to_lnglat(dodec.normals[i]), unit_to_lnglat(dodec.normals[j])]
+        for (i, j) in dodec.icosa_edges
+    ]

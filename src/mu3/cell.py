@@ -38,8 +38,16 @@ from typing import Iterator, Sequence
 import numpy as np
 
 from . import icosahedron
-from .face_lattice import digit_offset, get_rot, s3, units
-from .projection import AlphaSlerp, Projection
+from .eisenstein import (
+    UNIT_DIGITS,
+    ZETA,
+    Eis,
+    first_nonzero_digit,
+    in_deleted_wedge,
+    scaled_corner,
+)
+from .face_lattice import digit_offset, get_rot, s3
+from .projection import AlphaSlerp, Projection, Vec3
 
 _PROJECTION_CLS: type[Projection] = AlphaSlerp
 
@@ -115,7 +123,7 @@ def _projection(p: int, d: int) -> Projection:
     return _PROJECTION_CLS(V[p], V[n[d - 2]], V[n[(d - 1) % 5]])
 
 
-def _project(z: complex, base: int) -> np.ndarray:
+def _project(z: complex, base: int) -> Vec3:
     """Eisenstein → stitch → wedge barycentric → projection → sphere."""
     if z == 0j:
         return icosahedron.vertices()[base].copy()
@@ -134,7 +142,7 @@ def _z_from_wedge_barycentric(beta: np.ndarray, d: int) -> complex:
     return z_aligned / _wedge_align_rot(d)
 
 
-def _sphere_to_flat(p3d: np.ndarray, base: int) -> complex:
+def _sphere_to_flat(p3d: Vec3, base: int) -> complex:
     """Inverse of :func:`_project`: 3D unit vector inside ``base``'s spherical
     territory → Eisenstein ``z`` in ``base``'s flat frame.
 
@@ -205,8 +213,7 @@ def cells_at_res(res: int) -> Iterator[tuple]:
             yield (base,)
             continue
         for digits in itertools.product(range(7), repeat=res):
-            first_nz = next((d for d in digits if d != 0), None)
-            if first_nz == 1:
+            if first_nonzero_digit(digits) == 1:
                 continue
             yield (base, *digits)
 
@@ -281,7 +288,7 @@ def cell_resolution(cell) -> int:
     return len(cell) - 1
 
 
-def cell_center(cell: Sequence[int]) -> np.ndarray:
+def cell_center(cell: Sequence[int]) -> Vec3:
     """Unit 3-vector on the sphere for ``cell = (base, d_1, ..., d_N)``."""
     base, digits = cell[0], cell[1:]
     return _project(_eisenstein_center(digits), base)
@@ -398,28 +405,35 @@ def cell_area(cell: Sequence[int]) -> float:
     return _spherical_polygon_area(cell_boundary(cell, closed=False))
 
 
+def _project_corner(corner: Eis, base: int, res: int) -> Vec3:
+    """Exact S3-scaled corner -> unit 3-vector: the single flat-to-3D
+    corner path (``cell_boundary`` rows and ``mu3.vertex`` positions
+    both go through here; floats start at this boundary)."""
+    return _project(corner.to_complex() / (s3 * get_rot(res)), base)
+
+
 def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
     Hex cells return 6 vertices; pentagon-center cells (all-zero child
     digits, including the res-0 cell ``(base,)``) return 5 — stitching
-    collapses corners k=3 and k=4 onto the same point. If ``closed``, the
-    first vertex is repeated.
+    collapses corner k=0 (in the deleted wedge) onto k=1. Corner dedup
+    is exact: the key is the S3-scaled corner lattice point, stitched
+    when it develops into the deleted wedge (see ``mu3.vertex``). If
+    ``closed``, the first vertex is repeated.
     """
     base, digits = cell[0], cell[1:]
-    z = _eisenstein_center(digits)
-    rot_N = get_rot(cell_resolution(cell))
+    res = cell_resolution(cell)
 
-    seen: set[tuple] = set()
+    seen: set = set()
     pts: list[np.ndarray] = []
-    for k in range(6):
-        corner_z = z + units[k] / (s3 * rot_N)
-        p3 = _project(corner_z, base)
-        key = tuple(np.round(p3, 12))
+    for d in UNIT_DIGITS:
+        corner = scaled_corner(digits, d)
+        key = ZETA * corner if in_deleted_wedge(corner, res) else corner
         if key in seen:
             continue
         seen.add(key)
-        pts.append(p3)
+        pts.append(_project_corner(corner, base, res))
 
     out = np.stack(pts, axis=0)
     if closed:
@@ -427,7 +441,7 @@ def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     return out
 
 
-def _polish_boundary(q: np.ndarray, V: np.ndarray) -> int | None:
+def _polish_boundary(q: Vec3, V: np.ndarray) -> int | None:
     """Spherical point-in-polygon against a precomputed boundary.
 
     ``V`` is an ``(n, 3)`` CCW ring of unit 3-vectors (viewed from outside
@@ -454,6 +468,6 @@ def _polish_boundary(q: np.ndarray, V: np.ndarray) -> int | None:
     return worst_k
 
 
-def _polish_cell_sphere(q: np.ndarray, cell: Sequence[int]) -> int | None:
+def _polish_cell_sphere(q: Vec3, cell: Sequence[int]) -> int | None:
     """Spherical point-in-polygon for a mu3 cell. Wraps :func:`_polish_boundary`."""
     return _polish_boundary(q, cell_boundary(cell, closed=False))

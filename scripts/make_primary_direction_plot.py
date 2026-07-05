@@ -10,7 +10,7 @@ visible on the sphere (each of the 3 axes becomes a "zero axis" for one
 family of 4 pentagons).
 
 The primary direction on each pentagon is the tangent at its center pointing
-toward the "same-family neighbor" (flip s_1). See reports/nearest-dodecahedron-face.md.
+toward the "same-family neighbor" (flip s_1).
 """
 
 import json

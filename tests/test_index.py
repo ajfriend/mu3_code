@@ -3,7 +3,7 @@ import numpy as np
 import mu3
 from mu3 import cell_center, cells_at_res, icosahedron, is_pentagon
 from mu3.cell import cell_resolution
-from mu3.index import _latlng_to_cell_detailed, latlng_to_vec
+from mu3.index import _latlng_to_cell_detailed, latlng_to_vec3
 
 
 def _vec_to_latlng_deg(v: np.ndarray) -> tuple[float, float]:
@@ -55,8 +55,8 @@ def test_polish_is_noop_at_res0():
     assert np.array_equal(final, pre_polish)
 
 
-def test_latlng_to_vec_unit_norm():
-    v = latlng_to_vec(np.array([0.0, 30.0, -45.0, 89.0]), np.array([0.0, 45.0, 180.0, -120.0]))
+def test_latlng_to_vec3_unit_norm():
+    v = latlng_to_vec3(np.array([0.0, 30.0, -45.0, 89.0]), np.array([0.0, 45.0, 180.0, -120.0]))
     assert np.allclose(np.linalg.norm(v, axis=-1), 1.0)
 
 
@@ -209,18 +209,18 @@ def test_polish_reassignment_regressions():
     """Frozen polish-reassignment fixtures across resolutions 1..10.
 
     For each (res, p3d, expected, pre_polish_candidate):
-      - ``vec_to_cell_raw`` must return ``pre_polish_candidate`` (the
+      - ``vec3_to_cell_raw`` must return ``pre_polish_candidate`` (the
         forward-pipeline answer, before polish kicks in).
-      - ``vec_to_cell_polished`` and ``vec_to_cell`` must return
+      - ``vec3_to_cell_polished`` and ``vec3_to_cell`` must return
         ``expected`` (the contained cell after polish).
       - Raw and polished must differ -- otherwise the case wouldn't
         exercise polish and should be replaced.
     """
     for res, xyz, expected, pre_polish in _POLISH_REASSIGN_CASES:
         p = np.asarray(xyz, dtype=float)
-        raw = mu3.vec_to_cell_raw(p, res)
-        polished = mu3.vec_to_cell_polished(p, res)
-        default = mu3.vec_to_cell(p, res)
+        raw = mu3.vec3_to_cell_raw(p, res)
+        polished = mu3.vec3_to_cell_polished(p, res)
+        default = mu3.vec3_to_cell(p, res)
         assert raw == pre_polish, (res, pre_polish, raw)
         assert polished == expected, (res, expected, polished)
         assert default == polished, (res, default, polished)

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _globe_template import render_globe_page, unit_to_lnglat
+from _globe_template import icosa_edge_coords, render_globe_page, unit_to_lnglat
 
 from mu3 import dodec
 
@@ -24,10 +24,7 @@ def main():
         ring.append(ring[0])
         pentagons.append([ring])
 
-    icosa_lines = [
-        [unit_to_lnglat(dodec.normals[i]), unit_to_lnglat(dodec.normals[j])]
-        for (i, j) in dodec.icosa_edges
-    ]
+    icosa_lines = icosa_edge_coords()
 
     arrow_angle = np.radians(20)
     primary_arrows = [

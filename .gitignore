@@ -11,5 +11,6 @@ wheels/
 .DS_Store
 uv.lock
 
-# Rendered report PDFs (regenerated from the .md sources via reports/justfile)
-reports/*.pdf
+# Generated figures (scripts/, figures.just)
+figures/*
+!figures/.gitkeep

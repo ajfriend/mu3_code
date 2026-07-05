@@ -137,10 +137,10 @@ def main():
         ax.plot(z_n.real, z_n.imag, "X", color="#d96b0f",
                 markersize=10, markeredgewidth=1.8, zorder=8.5)
 
-        # Find phantom digits.
-        # divmod-extract via the existing _z_to_cell_with_residue.
-        from mu3.neighbor import _z_to_cell_with_residue
-        phantom_digits, _ = _z_to_cell_with_residue(0, z_n, RES)
+        # Find phantom digits via the exact extractor (walked ring-1
+        # positions are exact lattice points, so the snap is exact).
+        from mu3.eisenstein import extract_digits, from_complex
+        phantom_digits, _ = extract_digits(from_complex(z_n * rot_N), RES)
         phantom_digits = tuple(phantom_digits)
 
         # CCW twin.

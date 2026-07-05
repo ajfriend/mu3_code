@@ -13,8 +13,6 @@ vertices land on H3's water-aligned positions, matching H3's icosahedron
 orientation. All public quantities (normals, pentagon_corners,
 primary_tangents) are in this final H3-oriented frame.
 
-See ``reports/nearest-dodecahedron-face.md`` for the design rationale and a
-comparison with alternative labelings.
 """
 
 import math
