@@ -105,6 +105,89 @@ class Gnomonic:
         return _bary_from_offset(self._g, q - self.V[0])
 
 
+_GNOMONIC_PSI_DEFAULTS = (-0.34499, 0.17899, -0.05624)  # degree-4 ψ (c₂,c₃,c₄)
+
+
+class GnomonicPsiWarp(Gnomonic):
+    """Gnomonic projection pre-warped by a per-coordinate polynomial ψ.
+
+    ``to_sphere(β) = normalize(Σ ψ(βᵢ) Vᵢ)`` with
+    ``ψ(x) = x + c₂x² + c₃x³ + c₄x⁴`` (monotone on [0,1], ψ(0)=0), applied
+    per coordinate before gnomonic normalization. The warp cancels gnomonic's
+    area distortion: at the fitted coefficients the map is equal-area to the
+    icosahedral floor (area_r ≈ 1.002, aspect median ≈ 1.158). Edges stay on
+    great-circle arcs (ψ fixes the simplex boundary), and the whole map is
+    **transcendental-free** in both directions.
+
+    ``to_bary`` inverts in closed-form + a 1-D solve: gnomonic⁻¹ (the parent)
+    recovers ``gᵢ = ψ(βᵢ)/W`` (normalized); a 1-D monotone solve recovers the
+    scale ``W`` from ``Σ βᵢ = 1``; then ``βᵢ = ψ⁻¹(gᵢW)`` per coordinate. No
+    transcendentals, no 2-D Newton.
+
+    The ψ coefficients are fit for the equilateral icosahedron face; a guard
+    rejects other triangles.
+    """
+
+    def __init__(self, v0, v1, v2, coeffs=_GNOMONIC_PSI_DEFAULTS) -> None:
+        super().__init__(v0, v1, v2)
+        self.coeffs = tuple(float(c) for c in coeffs)
+        c01 = float(self.V[0] @ self.V[1])
+        c12 = float(self.V[1] @ self.V[2])
+        c20 = float(self.V[2] @ self.V[0])
+        if not (abs(c01 - c12) < 1e-12 and abs(c12 - c20) < 1e-12):
+            raise ValueError(
+                'GnomonicPsiWarp is fit for equilateral (icosa) faces; '
+                f'pairwise V·V = {c01:.6g}, {c12:.6g}, {c20:.6g}.')
+        self._psi1 = self._psi(1.0)
+
+    def _psi(self, x):
+        c = self.coeffs
+        return x + c[0] * x ** 2 + c[1] * x ** 3 + c[2] * x ** 4
+
+    def _dpsi(self, x):
+        c = self.coeffs
+        return 1.0 + 2 * c[0] * x + 3 * c[1] * x ** 2 + 4 * c[2] * x ** 3
+
+    def _psi_inv(self, y: float) -> float:
+        if y <= 0.0:
+            return 0.0
+        if y >= self._psi1:
+            return 1.0
+        x = y                                    # ψ ≈ x near 0 → good start
+        for _ in range(40):
+            step = (self._psi(x) - y) / self._dpsi(x)
+            x -= step
+            if abs(step) < 1e-15:
+                break
+        return x
+
+    def to_sphere(self, beta: np.ndarray) -> Vec3:
+        w = self._psi(np.asarray(beta, dtype=float))
+        v = w @ self.V
+        return v / np.linalg.norm(v)
+
+    def to_bary(self, p: Vec3) -> np.ndarray:
+        g = Gnomonic.to_bary(self, p)            # gᵢ = ψ(βᵢ)/W  (closed form)
+        # 1-D monotone solve for W: Σ ψ⁻¹(gᵢW) − 1 = 0 (bisection-safeguarded).
+        lo, hi = 1e-9, self._psi1 / max(float(g.max()), 1e-12)
+        W = 0.5 * (lo + hi)
+        for _ in range(80):
+            b = [self._psi_inv(gi * W) for gi in g]
+            f = b[0] + b[1] + b[2] - 1.0
+            if abs(f) < 1e-14:
+                break
+            if f > 0.0:
+                hi = W
+            else:
+                lo = W
+            fp = g[0] / self._dpsi(b[0]) + g[1] / self._dpsi(b[1]) \
+                + g[2] / self._dpsi(b[2])
+            W = W - f / fp if fp > 0.0 else W
+            if not (lo < W < hi):
+                W = 0.5 * (lo + hi)
+        return np.array([self._psi_inv(gi * W) for gi in g])
+
+
 # Recommended parameters from the constrained-DGGS distortion study
 # (Strategy 1b, area-optimised 3-parameter form):
 # see 2026-04-18_distort/constrained_plan.md, line 633.

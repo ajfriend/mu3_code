@@ -7,6 +7,7 @@ from mu3.projection import (
     AlphaOnlySlerp,
     AlphaSlerp,
     AlphaSlerpExtended,
+    GnomonicPsiWarp,
     IVEAProjection,
     KarcherPolyProjection,
     KarcherProjection,
@@ -24,6 +25,7 @@ PROJECTION_CLASSES = [
     TunedKarcherProjection,  # at default (η=0.121, κ=0.170)
     KarcherPolyProjection,   # at default kappas=() it's exactly Karcher
     AlphaSlerpExtended,      # at default (λ, μ)=(0,0) it's exactly AlphaSlerp
+    GnomonicPsiWarp,         # gnomonic + per-coordinate ψ warp (equal-area)
 ]
 
 
