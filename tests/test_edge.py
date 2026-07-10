@@ -18,7 +18,9 @@ from mu3.cell import cell_boundary
 from mu3.edge import (
     DirectedEdge,
     UndirectedEdge,
+    corner_leaving_edge,
     directed_edges_of_cell,
+    edge_corner_digits,
     edge_to_boundary,
     opposite,
     outgoing_directions,
@@ -234,3 +236,20 @@ def test_wire_pair_validation():
             fn((0, 2), 7)        # no direction 7
         with pytest.raises(ValueError):
             fn((0, 1), 2)        # invalid cell (leading digit 1)
+
+
+def test_corner_leaving_edge_inverts_tail():
+    """corner_leaving_edge is the tail-map inverse, total over ALL
+    corner names: for every outgoing edge, the tail corner's leaving
+    edge is that edge back; at pentagon cut corners both same-cell
+    names (canonical 6, alias 1) answer the d=2 edge — the stitch
+    making the inverse total is what lets a single pentagon's
+    boundary ring close."""
+    for res in [0, 1, 2]:
+        for c in cells_at_res(res):
+            for d in outgoing_directions(c):
+                tail, _ = edge_corner_digits(d)
+                assert corner_leaving_edge(c, tail) == (c, d)
+            if is_pentagon(c):
+                assert corner_leaving_edge(c, 6) == (c, 2)
+                assert corner_leaving_edge(c, 1) == (c, 2)
