@@ -130,3 +130,7 @@ needed on the fast path. Pinned by exhaustive carry-vs-walk equality
 - `src/mu3/island.py` — Gosper island boundary iterator: the directed
   edges around a cell's descendant set, O(1) sequence work per edge
   (H3 PR #1138 design, constants fitted + oracle-pinned).
+- `src/mu3/polygon.py` — `cells_to_multipolygon`: boundary rings of an
+  arbitrary same-res cell set (walk-based chaining, no vertex
+  canonicalization; outer CCW / holes CW by construction; one polygon
+  per connected component).

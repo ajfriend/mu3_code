@@ -358,6 +358,19 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     See ``~/work/sphere_area/notes/2026-04-30-spherical-polygon-area.qmd``
     for the full derivation and the journey through prior attempts.
     """
+    sum_val = _signed_spherical_excess(V)
+    # Interior fan apex V[0] → CCW convex polygons give positive sum
+    # directly. Fallback for pathological non-convex inputs.
+    if sum_val < 0.0:
+        sum_val += 4.0 * math.pi
+    return sum_val
+
+
+def _signed_spherical_excess(V: np.ndarray) -> float:
+    """The raw signed fan sum behind :func:`_spherical_polygon_area`:
+    positive for CCW-from-outside rings, negative for CW — the
+    orientation bit ``mu3.polygon`` classifies holes with. No +4π
+    normalization."""
     n = len(V)
     x0, x1, x2 = float(V[0][0]), float(V[0][1]), float(V[0][2])
 
@@ -395,13 +408,6 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
         c = (t - sum_val) - cy
         sum_val = t
 
-    # Interior fan apex V[0] → CCW convex polygons give positive sum
-    # directly. Fallback for pathological non-convex inputs.
-    if sum_val < 0.0:
-        cy = 4.0 * math.pi - c
-        t = sum_val + cy
-        c = (t - sum_val) - cy
-        sum_val = t
     return sum_val
 
 

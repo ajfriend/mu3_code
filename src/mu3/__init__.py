@@ -10,6 +10,7 @@ from .index import (
 )
 from .cell import cell_area, cell_boundary, cell_center, cell_resolution, cells_at_res, is_pentagon, is_valid_cell
 from .neighbor import cell_ring1
+from .polygon import cells_to_multipolygon
 from . import icosahedron
 from . import dodec
 
@@ -28,6 +29,7 @@ __all__ = [
     "cell_resolution",
     "cell_ring1",
     "cells_at_res",
+    "cells_to_multipolygon",
     "is_pentagon",
     "is_valid_cell",
     "icosahedron",
