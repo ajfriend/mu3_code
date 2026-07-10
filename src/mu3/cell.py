@@ -32,7 +32,6 @@ produces a 5-gon.
 import cmath
 import itertools
 import math
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterator, Sequence
 
@@ -424,32 +423,24 @@ def _project_corner(corner: Eis, base: int, res: int) -> Vec3:
     return _project(corner.to_complex() / (s3 * get_rot(res)), base)
 
 
-@dataclass(frozen=True, eq=False)
 class _CellFrame:
-    """Immutable snapshot of one cell's intermediate algebra.
-
-    Construction validates once and computes the state every corner/
-    boundary product shares: ``base``, ``res``, and the exact S3-scaled
-    center ``sc3``. Everything derived is a pure function of the frame.
-    ``frame.cell`` is the identity, the frame is a compute value
-    (``eq=False``). Projected geometry reflects the active projection —
-    same snapshot rule as ``_projection``'s lru_cache: don't carry
-    frames across a projection swap; the exact-algebra fields are
-    projection-independent and can never go stale.
+    """Snapshot of one cell's intermediate algebra: validate once,
+    compute once the state every corner/boundary product shares.
+    Attributes are set at construction and never after — treat frames
+    as throwaway snapshots (``frame.cell`` is the identity; don't
+    carry a frame across a projection swap).
     """
 
-    cell: tuple
-
-    def __post_init__(self):
-        cell_t = tuple(int(x) for x in self.cell)
+    def __init__(self, cell):
+        cell_t = tuple(int(x) for x in cell)
         if not is_valid_cell(cell_t):
             raise ValueError(f'_CellFrame: invalid cell {cell_t}')
-        object.__setattr__(self, 'cell', cell_t)
-        object.__setattr__(self, 'base', cell_t[0])
-        object.__setattr__(self, 'res', cell_resolution(cell_t))
+        self.cell = cell_t
+        self.base = cell_t[0]
+        self.res = cell_resolution(cell_t)
         # scaled_corner (the corner formula's single home) with the
         # center term hoisted: corner(d) = sc3 + DIGIT_OFFSET[d].
-        object.__setattr__(self, 'sc3', scaled_corner(cell_t[1:], 0))
+        self.sc3 = scaled_corner(cell_t[1:], 0)
 
     def corner(self, d: int) -> Eis:
         """Exact corner at digit ``d``, S3-scaled res-N frame."""
