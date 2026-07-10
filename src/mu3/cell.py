@@ -431,6 +431,8 @@ class _CellFrame:
     carry a frame across a projection swap).
     """
 
+    __slots__ = ('cell', 'base', 'res', 'sc3')
+
     def __init__(self, cell):
         cell_t = tuple(int(x) for x in cell)
         if not is_valid_cell(cell_t):
