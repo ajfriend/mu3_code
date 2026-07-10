@@ -42,13 +42,22 @@ face (origin cell), and traversed CCW around its origin cell the edge
 every vertex with period 3 — across the pentagon cut too, where the
 ``d=1`` alias normalization is what makes it close. The cross-object
 laws are pinned in ``tests/test_incidence.py``.
+
+Tier note: ``Vertex`` is the IDENTITY tier; positions-only callers
+want :func:`vertex_to_vec3` / ``mu3.edge.edge_to_boundary`` (the tier
+rule lives in the ``mu3.edge`` module docstring).
 """
 
 from dataclasses import dataclass
 from typing import Sequence
 
 from .cell import _project_corner, cell_resolution, is_pentagon, is_valid_cell
-from .edge import DirectedEdge, UndirectedEdge
+from .edge import (
+    DirectedEdge,
+    UndirectedEdge,
+    _require_outgoing,
+    edge_corner_digits,
+)
 from .eisenstein import UNIT_DIGITS, scaled_corner
 from .face_lattice import rotate_digit_ccw
 from .neighbor import step
@@ -150,6 +159,21 @@ class Vertex:
         )
 
 
+def edge_to_vertices(cell: Sequence[int], d: int) -> tuple[Vertex, Vertex]:
+    """Wire-pair form of :func:`edge_vertices`: the two corners of
+    edge ``(cell, d)`` as canonical vertices, no ``DirectedEdge`` lift
+    required.
+
+    IDENTITY tier — each ``Vertex`` canonicalizes (two arrow walks);
+    positions-only callers want ``mu3.edge.edge_to_boundary``.
+    """
+    cell_t = tuple(int(x) for x in cell)
+    d = int(d)
+    _require_outgoing(cell_t, d, 'edge_to_vertices')
+    tail, head = edge_corner_digits(d)
+    return (Vertex(cell_t, tail), Vertex(cell_t, head))
+
+
 def edge_vertices(edge: DirectedEdge) -> tuple[Vertex, Vertex]:
     """The two corners of an edge's boundary segment, as canonical
     vertices: ``(tail, head)`` in CCW-traversal order around
@@ -163,8 +187,7 @@ def edge_vertices(edge: DirectedEdge) -> tuple[Vertex, Vertex]:
     ``UndirectedEdge``, which erases orientation, take
     ``edge_vertices(u.directed_orientations()[0])`` — the pair is
     the same set either way.)"""
-    c, d = edge.cell, edge.d
-    return (Vertex(c, rotate_digit_ccw(d, 5)), Vertex(c, d))
+    return edge_to_vertices(edge.cell, edge.d)
 
 
 def vertex_to_vec3(cell: Sequence[int], d: int) -> Vec3:

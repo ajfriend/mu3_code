@@ -16,12 +16,22 @@ Edge iteration order aligns with :func:`mu3.neighbor.cell_ring1` and
 with boundary-edge indices: ``directed_edges_of_cell(c)[i].dest() ==
 cell_ring1(c)[i]``, which is the alignment ``index._polish`` relies
 on.
+
+Two tiers, two prices (see the geometry-api design note): IDENTITY
+(``DirectedEdge``/``UndirectedEdge``/``mu3.vertex.Vertex`` — canonical
+names for dedup, stitching, hashing; canonicalization costs arrow
+walks) and GEOMETRY (:func:`edge_to_boundary`,
+``mu3.cell.cell_boundary``, ``mu3.vertex.vertex_to_vec3`` — vec3 out,
+wire pairs in, no identity objects constructed). Route geometry
+consumers to the geometry tier.
 """
 
 from dataclasses import dataclass
 from typing import Sequence
 
-from .cell import is_pentagon, is_valid_cell
+import numpy as np
+
+from .cell import _CellFrame, is_pentagon, is_valid_cell
 from .face_lattice import rotate_digit_ccw
 from .neighbor import step
 
@@ -38,6 +48,24 @@ def outgoing_directions(cell: Sequence[int]) -> tuple[int, ...]:
     return (2, 3, 4, 5, 6) if is_pentagon(cell) else (1, 2, 3, 4, 5, 6)
 
 
+def _require_outgoing(cell: tuple, d: int, who: str) -> None:
+    """Shared enforcement of :func:`outgoing_directions`: raise unless
+    ``d`` carries an edge out of ``cell``. (``Vertex`` can't be the
+    validator here — it deliberately accepts the pentagon ``d=1``
+    corner alias, which is never an edge direction.)"""
+    if d not in outgoing_directions(cell):
+        raise ValueError(f'{who}: no direction {d} out of {cell}')
+
+
+def edge_corner_digits(d: int) -> tuple[int, int]:
+    """The (tail, head) corner digits of edge ``d``: traversed CCW
+    around its origin cell, the edge runs from corner
+    ``rotate_digit_ccw(d, 5)`` to corner ``d`` (the DCEL fact behind
+    ``mu3.vertex.edge_vertices``; like :func:`opposite`, the named home
+    of an offset)."""
+    return rotate_digit_ccw(d, 5), d
+
+
 @dataclass(frozen=True, slots=True)
 class DirectedEdge:
     """``cell`` -> its ring-1 neighbor in digit direction ``d``."""
@@ -51,10 +79,7 @@ class DirectedEdge:
         object.__setattr__(self, 'd', int(self.d))
         if not is_valid_cell(cell_t):
             raise ValueError(f'DirectedEdge: invalid cell {cell_t}')
-        if self.d not in outgoing_directions(cell_t):
-            raise ValueError(
-                f'DirectedEdge: no direction {self.d} out of {cell_t}'
-            )
+        _require_outgoing(cell_t, self.d, 'DirectedEdge')
 
     def dest(self) -> tuple:
         c, _ = step(self.cell, self.d)
@@ -90,6 +115,21 @@ def directed_edges_of_cell(cell: Sequence[int]) -> list[DirectedEdge]:
     order — ``[e.dest() for e in ...] == cell_ring1(cell)``."""
     cell_t = tuple(int(x) for x in cell)
     return [DirectedEdge(cell_t, d) for d in outgoing_directions(cell_t)]
+
+
+def edge_to_boundary(cell: Sequence[int], d: int) -> np.ndarray:
+    """The edge's two corner positions as a (2, 3) array ``[tail,
+    head]`` of unit 3-vectors, CCW-traversal order around ``cell``
+    (matching :func:`mu3.vertex.edge_vertices`).
+
+    GEOMETRY tier — wire pair in, no identity objects constructed;
+    see the module docstring.
+    """
+    frame = _CellFrame(cell)
+    d = int(d)
+    _require_outgoing(frame.cell, d, 'edge_to_boundary')
+    tail, head = edge_corner_digits(d)
+    return np.stack([frame.corner_vec3(tail), frame.corner_vec3(head)])
 
 
 @dataclass(frozen=True, slots=True)

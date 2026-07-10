@@ -32,6 +32,7 @@ produces a 5-gon.
 import cmath
 import itertools
 import math
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterator, Sequence
 
@@ -39,6 +40,7 @@ import numpy as np
 
 from . import icosahedron
 from .eisenstein import (
+    DIGIT_OFFSET,
     UNIT_DIGITS,
     ZETA,
     Eis,
@@ -422,6 +424,62 @@ def _project_corner(corner: Eis, base: int, res: int) -> Vec3:
     return _project(corner.to_complex() / (s3 * get_rot(res)), base)
 
 
+@dataclass(frozen=True, eq=False)
+class _CellFrame:
+    """Immutable snapshot of one cell's intermediate algebra.
+
+    Construction validates once and computes the state every corner/
+    boundary product shares: ``base``, ``res``, and the exact S3-scaled
+    center ``sc3``. Everything derived is a pure function of the frame.
+    ``frame.cell`` is the identity, the frame is a compute value
+    (``eq=False``). Projected geometry reflects the active projection —
+    same snapshot rule as ``_projection``'s lru_cache: don't carry
+    frames across a projection swap; the exact-algebra fields are
+    projection-independent and can never go stale.
+    """
+
+    cell: tuple
+
+    def __post_init__(self):
+        cell_t = tuple(int(x) for x in self.cell)
+        if not is_valid_cell(cell_t):
+            raise ValueError(f'_CellFrame: invalid cell {cell_t}')
+        object.__setattr__(self, 'cell', cell_t)
+        object.__setattr__(self, 'base', cell_t[0])
+        object.__setattr__(self, 'res', cell_resolution(cell_t))
+        # scaled_corner (the corner formula's single home) with the
+        # center term hoisted: corner(d) = sc3 + DIGIT_OFFSET[d].
+        object.__setattr__(self, 'sc3', scaled_corner(cell_t[1:], 0))
+
+    def corner(self, d: int) -> Eis:
+        """Exact corner at digit ``d``, S3-scaled res-N frame."""
+        return self.sc3 + DIGIT_OFFSET[d]
+
+    def corner_vec3(self, d: int) -> Vec3:
+        """Corner ``d`` on the sphere, via :func:`_project_corner`
+        (stitch-aware; the pentagon ``d=1`` alias lands on the same 3D
+        point as ``d=6``)."""
+        return _project_corner(self.corner(d), self.base, self.res)
+
+    def boundary(self, closed: bool = True) -> np.ndarray:
+        """See :func:`cell_boundary` (its implementation)."""
+        seen: set = set()
+        pts: list[np.ndarray] = []
+        for d in UNIT_DIGITS:
+            corner = self.corner(d)
+            key = (ZETA * corner if in_deleted_wedge(corner, self.res)
+                   else corner)
+            if key in seen:
+                continue
+            seen.add(key)
+            pts.append(self.corner_vec3(d))
+
+        out = np.stack(pts, axis=0)
+        if closed:
+            out = np.vstack([out, out[0:1]])
+        return out
+
+
 def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     """Cell boundary as an (M, 3) array of unit 3-vectors.
 
@@ -432,23 +490,7 @@ def cell_boundary(cell: Sequence[int], closed: bool = True) -> np.ndarray:
     when it develops into the deleted wedge (see ``mu3.vertex``). If
     ``closed``, the first vertex is repeated.
     """
-    base, digits = cell[0], cell[1:]
-    res = cell_resolution(cell)
-
-    seen: set = set()
-    pts: list[np.ndarray] = []
-    for d in UNIT_DIGITS:
-        corner = scaled_corner(digits, d)
-        key = ZETA * corner if in_deleted_wedge(corner, res) else corner
-        if key in seen:
-            continue
-        seen.add(key)
-        pts.append(_project_corner(corner, base, res))
-
-    out = np.stack(pts, axis=0)
-    if closed:
-        out = np.vstack([out, out[0:1]])
-    return out
+    return _CellFrame(cell).boundary(closed=closed)
 
 
 def _polish_boundary(q: Vec3, V: np.ndarray) -> int | None:
