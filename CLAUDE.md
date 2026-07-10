@@ -52,7 +52,16 @@ formerly `neighbor_holonomy.py`): exact `Eis` positions carrying the
 groupoid arrow (a transported source center / query witness); one
 seam-side sign test replaces all geometric disambiguation. `index.py`
 point location goes `_sphere_to_flat` → exact snap
-(`eisenstein.from_complex`) → `resolve_position` → spherical polish.
+(`eisenstein.from_complex`) → `resolve_position` → banded spherical
+polish (`_polish_banded`: flat edge distances gate which edges get a
+great-circle side test; stitch-region cells and actual crossings fall
+back to the full `_polish`). The polish contract is the SINGLE-EDGE
+INVARIANT: the raw cell is correct or off by exactly one violated
+edge — an invariant of the architecture (exact shared corners confine
+flat/spherical mismatch to per-edge bow lenses), never a search
+radius. Do not reason "if X changes we may need to check 2-3 hops":
+if a margin erodes, the projection or its fitted constants are what
+get fixed (`test_one_hop_contract.py` fails by name).
 Correctness rests on implementation-agnostic tests only:
 `test_neighbor.py` invariants (size/symmetry/distance-band/CCW/
 primary-last) and `test_point_location.py` containment.
@@ -74,6 +83,16 @@ needed on the fast path. Pinned by exhaustive carry-vs-walk equality
 (res 0–3 in-suite; res 0–5 via `scripts/verify_carry_walk.py`).
 
 ## Gotchas
+
+- **`_BOW_COEFFS` in `index.py` is coupled to the active projection.**
+  The banded polish's parabolic bow envelope is projection-independent
+  in FORM (exact shared corners + smooth edges), but its per-res
+  coefficients are fitted to `_PROJECTION_CLS`. Swapping projections:
+  rerun `scripts/measure_polish_band.py`, add the new table entry
+  (keyed by class name — missing entry raises, stale one fails
+  `test_bow_envelope_headroom`). The coefficients PLATEAU with res
+  (~0.06 measured): worst edges cross chart seams, where the C⁰ kink
+  makes relative bow scale-free — don't "fix" the non-decaying tail.
 
 - **Same-base flat distance is NOT preserved by the +60° stitch.**
   Cells like `(0, 0, 2)` and `(0, 0, 6)` are 3D-adjacent but at flat

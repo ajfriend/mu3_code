@@ -20,6 +20,8 @@ from mu3.cell import (
     cell_center,
     cells_at_res,
 )
+from mu3.eisenstein import first_nonzero_digit
+from mu3.index import _polish, vec3_to_cell_raw
 
 _locate = vec3_to_cell   # the production pipeline: exact raw + polish
 
@@ -111,3 +113,27 @@ def test_cut_line_containment(res):
                 z = r * cmath.exp(1j * math.radians(theta_deg))
                 q = _project(z, base)
                 _assert_contains(_locate(q, res), q)
+
+
+@pytest.mark.parametrize('res', range(1, 5))
+def test_banded_polish_matches_full(res):
+    """The banded polish must equal the full-boundary reference polish
+    exactly. Uniform random points plus boundary-jittered points (the
+    band interior, where the two paths could plausibly diverge)."""
+    rng = np.random.default_rng(res)
+    pts = list(rng.normal(size=(400, 3)))
+    for _ in range(120):
+        digits = rng.integers(0, 7, size=res)
+        if first_nonzero_digit(map(int, digits)) == 1:
+            continue
+        cell = (int(rng.integers(0, 12)), *map(int, digits))
+        B = cell_boundary(cell, closed=False)
+        k = int(rng.integers(0, len(B)))
+        t = float(rng.uniform(0.0, 1.0))
+        q = (1 - t) * B[k] + t * B[(k + 1) % len(B)]
+        scale = float(np.linalg.norm(B[k] - B[(k + 1) % len(B)]))
+        pts.append(q + rng.normal(size=3) * scale * rng.uniform(0.0, 0.4))
+    for q in pts:
+        q = q / np.linalg.norm(q)
+        raw = vec3_to_cell_raw(q, res)
+        assert _locate(q, res) == _polish(q, raw)

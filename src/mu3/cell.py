@@ -51,6 +51,13 @@ from .projection import AlphaSlerp, Projection, Vec3
 
 _PROJECTION_CLS: type[Projection] = AlphaSlerp
 
+
+def active_projection_name() -> str:
+    """Name of the active projection class. Keys projection-specific
+    fitted constants (e.g. ``mu3.index._BOW_COEFFS``) so a projection
+    swap fails loudly instead of silently using stale values."""
+    return _PROJECTION_CLS.__name__
+
 # +60° rotation in the pentagon-Eisenstein plane (stitching for the deleted wedge).
 _ROT60 = cmath.exp(1j * math.pi / 3)
 
