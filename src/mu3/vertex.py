@@ -97,17 +97,23 @@ def _normalize(cell: tuple, d: int) -> tuple[tuple, int]:
     return cell, d
 
 
-def _orbit_step(cell: tuple, d: int) -> tuple[tuple, int]:
+def orbit_step(cell: tuple, d: int) -> tuple[tuple, int]:
     """``rho(c, eps) = (c + eps, eps*omega)``: the next incident cell
     CCW around the corner, with its name for the same corner —
-    ``omega`` transported by the walk's arrow."""
+    ``omega`` transported by the walk's arrow.
+
+    The wire-tier orbit operation ("the other names of this corner"):
+    three applications cycle a corner's names, one per incident cell,
+    no canonicalization — the walk counterpart of
+    :meth:`Vertex.representatives`, promoted public for the same
+    reason as ``edge.corner_leaving_edge``."""
     dest, rot = step(cell, d)
     return _normalize(dest, rotate_digit_ccw(d, rot + 2))
 
 
 def _orbit(rep: tuple[tuple, int]):
-    r2 = _orbit_step(*rep)
-    return (rep, r2, _orbit_step(*r2))
+    r2 = orbit_step(*rep)
+    return (rep, r2, orbit_step(*r2))
 
 
 @dataclass(frozen=True, slots=True)
