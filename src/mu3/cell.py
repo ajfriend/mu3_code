@@ -306,7 +306,25 @@ def cell_center(cell: Sequence[int]) -> Vec3:
 
 
 def _spherical_polygon_area(V: np.ndarray) -> float:
-    """Spherical polygon area on the unit sphere (steradians).
+    """Spherical polygon area on the unit sphere (steradians):
+    :func:`_signed_spherical_excess` (the numerics live there),
+    normalized to positive.
+
+    Sign convention: CCW-from-outside convex polygons (every mu3
+    cell) sum to a positive value directly. The +4π fallback catches
+    pathological non-convex inputs.
+    """
+    sum_val = _signed_spherical_excess(V)
+    if sum_val < 0.0:
+        sum_val += 4.0 * math.pi
+    return sum_val
+
+
+def _signed_spherical_excess(V: np.ndarray) -> float:
+    """Signed spherical excess of the ring ``V``: positive for
+    CCW-from-outside, negative for CW — the orientation bit
+    ``mu3.polygon`` classifies holes with. No +4π normalization
+    (that is :func:`_spherical_polygon_area`).
 
     Fan-triangulate around V[0] and sum the spherical excess of each
     fan triangle (V[0], V[i], V[i+1]) using a fully chord-based
@@ -351,26 +369,9 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     lat/lng Cagnoli formula, which loses everything to f64 underflow
     there.
 
-    Sign convention: CCW-from-outside convex polygons (every mu3
-    cell) sum to a positive value directly. The +4π fallback catches
-    pathological non-convex inputs.
-
     See ``~/work/sphere_area/notes/2026-04-30-spherical-polygon-area.qmd``
     for the full derivation and the journey through prior attempts.
     """
-    sum_val = _signed_spherical_excess(V)
-    # Interior fan apex V[0] → CCW convex polygons give positive sum
-    # directly. Fallback for pathological non-convex inputs.
-    if sum_val < 0.0:
-        sum_val += 4.0 * math.pi
-    return sum_val
-
-
-def _signed_spherical_excess(V: np.ndarray) -> float:
-    """The raw signed fan sum behind :func:`_spherical_polygon_area`:
-    positive for CCW-from-outside rings, negative for CW — the
-    orientation bit ``mu3.polygon`` classifies holes with. No +4π
-    normalization."""
     n = len(V)
     x0, x1, x2 = float(V[0][0]), float(V[0][1]), float(V[0][2])
 

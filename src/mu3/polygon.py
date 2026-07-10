@@ -1,22 +1,19 @@
 """``cells_to_multipolygon``: the boundary of a cell set, as rings.
 
-The multipolygon of a set of same-resolution cells: one polygon per
-connected component, each a list of rings ``[outer, hole, ...]`` of
-corner positions (unit 3-vectors, row per corner, not closed). Rings
-are traversed with the set's interior on the LEFT, so outer rings are
-CCW (viewed from outside the sphere) and holes are CW — the
-orientation IS the classification (``cell._signed_spherical_excess``).
-
 Everything is combinatorial until the final corner projections:
 
-- Boundary edges are the wire pairs ``(cell, d)`` whose ``step``
-  destination is outside the set.
+- One sweep classifies every (cell, direction) pair of the set: the
+  walk destination either leaves the set (a boundary edge, kept as
+  the wire pair ``(cell, d)``) or grows the connected component.
 - Ring chaining is walk-based, no vertex canonicalization: every grid
   corner is 3-valent and its three incident cells are MUTUALLY
   adjacent, so a boundary can pass through a corner at most once —
-  the next boundary edge out of a corner is unique. Candidates are
-  read off the corner's Z/3 orbit (``vertex._orbit_step``) via
-  ``edge.corner_leaving_edge`` (alias-aware at pentagon cut corners).
+  the next boundary edge out of a corner is unique.
+- Rings are traversed with the set's interior on the LEFT, so outer
+  rings are CCW (viewed from outside the sphere) and holes are CW —
+  the orientation IS the classification
+  (``cell._signed_spherical_excess``), and component-first
+  decomposition assigns each hole to its outer by construction.
 - Each ring corner is projected once (the edge HEADS — N projections
   for an N-edge ring), through a per-cell ``_CellFrame`` reused
   across consecutive same-cell edges.
@@ -30,28 +27,38 @@ for the orientation classification.
 
 import numpy as np
 
-from .cell import _CellFrame, _signed_spherical_excess, is_valid_cell
+from .cell import (
+    _CellFrame,
+    _signed_spherical_excess,
+    cell_resolution,
+    is_valid_cell,
+)
 from .edge import corner_leaving_edge, outgoing_directions
-from .neighbor import step
-from .vertex import _orbit_step
+from .neighbor import _step_fast
+from .vertex import orbit_step
 
 
-def _connected_components(cells: set) -> list[set]:
-    todo = set(cells)
+def _component_boundaries(cell_set: set, res: int) -> list[set]:
+    """The boundary-edge set of each connected component of
+    ``cell_set``: one sweep over all (cell, direction) pairs, each
+    classified — destination outside the set is a boundary edge,
+    destination still unvisited grows the component. Components are
+    maximal, so each boundary set lands with its component."""
+    todo = set(cell_set)
     out = []
     while todo:
-        seed = todo.pop()
-        comp = {seed}
-        frontier = [seed]
+        frontier = [todo.pop()]
+        boundary = set()
         while frontier:
             c = frontier.pop()
             for d in outgoing_directions(c):
-                nb, _ = step(c, d)
-                if nb in todo:
+                nb, _ = _step_fast(c, res, d)
+                if nb not in cell_set:
+                    boundary.add((c, d))
+                elif nb in todo:
                     todo.remove(nb)
-                    comp.add(nb)
                     frontier.append(nb)
-        out.append(comp)
+        out.append(boundary)
     return out
 
 
@@ -59,45 +66,37 @@ def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
     """The unique boundary edge out of ``edge``'s head corner.
 
     The head corner of ``(c, d)`` is corner ``d`` of ``c``; its Z/3
-    orbit names it once per incident cell, and
-    :func:`mu3.edge.corner_leaving_edge` reads each name's leaving
-    edge (alias-aware: the stitch makes it total, pentagon cut
-    corners included). Exactly one candidate is in ``boundary``
-    (a corner's three cells are mutually adjacent: no pinch points).
+    orbit (``vertex.orbit_step``) names it once per incident cell, and
+    ``edge.corner_leaving_edge`` reads each name's leaving edge
+    (alias-aware: the stitch makes it total, pentagon cut corners
+    included). Exactly one candidate is in ``boundary`` (a corner's
+    three cells are mutually adjacent: no pinch points).
     """
     rep = edge
     for _ in range(3):
         candidate = corner_leaving_edge(*rep)
         if candidate in boundary:
             return candidate
-        rep = _orbit_step(*rep)
+        rep = orbit_step(*rep)
     raise AssertionError(f'no boundary continuation at head of {edge}')
 
 
 def _trace_ring(start: tuple, boundary: set) -> np.ndarray:
-    """Walk one ring from ``start``, removing its edges from
-    ``boundary``; rows are the edge head corners in traversal order.
-
-    ``start`` stays in ``boundary`` until the ring closes so the final
-    ``_next_boundary_edge`` can find it; traversed edges are never
-    continuation candidates (an edge leaves its tail corner, the
-    search is over its head corner's leaving edges).
-    """
+    """Walk one ring from ``start``; rows are the edge head corners in
+    traversal order. An edge leaves ``boundary`` when chosen as the
+    continuation; ``start``, chosen last, closes the ring."""
     pts = []
-    frame = None
+    frame = _CellFrame(start[0])
     edge = start
     while True:
         c, d = edge
-        if frame is None or frame.cell != c:
+        if frame.cell != c:
             frame = _CellFrame(c)
         pts.append(frame.corner_vec3(d))
-        nxt = _next_boundary_edge(edge, boundary)
-        if edge != start:
-            boundary.remove(edge)
-        if nxt == start:
-            boundary.remove(start)
+        edge = _next_boundary_edge(edge, boundary)
+        boundary.remove(edge)
+        if edge == start:
             return np.stack(pts, axis=0)
-        edge = nxt
 
 
 def cells_to_multipolygon(cells) -> list[list[np.ndarray]]:
@@ -109,7 +108,7 @@ def cells_to_multipolygon(cells) -> list[list[np.ndarray]]:
     cell_set = {tuple(int(x) for x in c) for c in cells}
     if not cell_set:
         return []
-    resolutions = {len(c) - 1 for c in cell_set}
+    resolutions = {cell_resolution(c) for c in cell_set}
     if len(resolutions) != 1:
         raise ValueError(
             f'cells_to_multipolygon: mixed resolutions {sorted(resolutions)};'
@@ -118,25 +117,19 @@ def cells_to_multipolygon(cells) -> list[list[np.ndarray]]:
     for c in cell_set:
         if not is_valid_cell(c):
             raise ValueError(f'cells_to_multipolygon: invalid cell {c}')
+    res = resolutions.pop()
 
     polygons = []
-    for comp in _connected_components(cell_set):
-        boundary = {
-            (c, d)
-            for c in comp
-            for d in outgoing_directions(c)
-            if step(c, d)[0] not in cell_set
-        }
+    for boundary in _component_boundaries(cell_set, res):
         rings = []
         while boundary:
             rings.append(_trace_ring(next(iter(boundary)), boundary))
         if not rings:
             continue   # component covers the sphere: no boundary
-        outers = [r for r in rings if _signed_spherical_excess(r) > 0.0]
-        holes = [r for r in rings if _signed_spherical_excess(r) <= 0.0]
-        if len(outers) != 1:
-            raise AssertionError(
-                f'component produced {len(outers)} outer rings'
-            )
+        outers, holes = [], []
+        for ring in rings:
+            (outers if _signed_spherical_excess(ring) > 0.0
+             else holes).append(ring)
+        assert len(outers) == 1, rings
         polygons.append([outers[0], *holes])
     return polygons
