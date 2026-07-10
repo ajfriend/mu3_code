@@ -14,10 +14,9 @@ Everything is combinatorial until the final corner projections:
 - Ring chaining is walk-based, no vertex canonicalization: every grid
   corner is 3-valent and its three incident cells are MUTUALLY
   adjacent, so a boundary can pass through a corner at most once —
-  the next boundary edge out of a corner is unique. The candidates
-  are read off the corner's Z/3 orbit (``vertex._orbit_step``): the
-  edge leaving corner ``(c, d)`` around cell ``c`` is
-  ``(c, rotate_digit_ccw(d, 1))``.
+  the next boundary edge out of a corner is unique. Candidates are
+  read off the corner's Z/3 orbit (``vertex._orbit_step``) via
+  ``edge.corner_leaving_edge`` (alias-aware at pentagon cut corners).
 - Each ring corner is projected once (the edge HEADS — N projections
   for an N-edge ring), through a per-cell ``_CellFrame`` reused
   across consecutive same-cell edges.
@@ -31,14 +30,8 @@ for the orientation classification.
 
 import numpy as np
 
-from .cell import (
-    _CellFrame,
-    _signed_spherical_excess,
-    is_pentagon,
-    is_valid_cell,
-)
-from .edge import outgoing_directions
-from .face_lattice import rotate_digit_ccw
+from .cell import _CellFrame, _signed_spherical_excess, is_valid_cell
+from .edge import corner_leaving_edge, outgoing_directions
 from .neighbor import step
 from .vertex import _orbit_step
 
@@ -66,24 +59,18 @@ def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
     """The unique boundary edge out of ``edge``'s head corner.
 
     The head corner of ``(c, d)`` is corner ``d`` of ``c``; its Z/3
-    orbit names it once per incident cell, and the edge leaving it
-    CCW around incident cell ``ci`` is ``(ci, rotate_digit_ccw(di, 1))``.
-    At a pentagon cut corner the canonical name ``(pent, 6)`` has the
-    alias ``(pent, 1)`` on the SAME cell, whose leaving edge is
-    ``(pent, 2)`` — the one extra candidate (the ring of a single
-    pentagon closes through it). Exactly one candidate is in
-    ``boundary`` (a corner's three cells are mutually adjacent: no
-    pinch points).
+    orbit names it once per incident cell, and
+    :func:`mu3.edge.corner_leaving_edge` reads each name's leaving
+    edge (alias-aware: the stitch makes it total, pentagon cut
+    corners included). Exactly one candidate is in ``boundary``
+    (a corner's three cells are mutually adjacent: no pinch points).
     """
     rep = edge
     for _ in range(3):
-        ci, di = rep
-        candidate = (ci, rotate_digit_ccw(di, 1))
+        candidate = corner_leaving_edge(*rep)
         if candidate in boundary:
             return candidate
-        if di == 6 and is_pentagon(ci) and (ci, 2) in boundary:
-            return (ci, 2)
-        rep = _orbit_step(ci, di)
+        rep = _orbit_step(*rep)
     raise AssertionError(f'no boundary continuation at head of {edge}')
 
 
