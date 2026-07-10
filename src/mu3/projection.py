@@ -348,6 +348,8 @@ class WarpedKarcher:
             if nu < 1e-14:
                 ts.append(np.zeros(3)); ths.append(0.0)
             else:
+                # Compiled ports: prefer Kahan's 2·atan2(‖p−Vi‖, ‖p+Vi‖),
+                # accurate as θ → 0 where acos(dot) loses digits.
                 th = math.acos(c)
                 ts.append(th * u / nu); ths.append(th)
         return ts, ths
@@ -1012,6 +1014,8 @@ def _log_sphere(base: np.ndarray, point: np.ndarray) -> np.ndarray:
     """Tangent vector at ``base`` pointing toward ``point``,
     magnitude = arc length on the unit sphere."""
     d = max(-1.0, min(1.0, float(base @ point)))
+    # Compiled ports: prefer Kahan's 2·atan2(‖base−point‖, ‖base+point‖),
+    # accurate as θ → 0 where acos(dot) loses digits.
     angle = math.acos(d)
     if angle < 1e-15:
         return np.zeros(3)
