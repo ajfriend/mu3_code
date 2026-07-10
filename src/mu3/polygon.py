@@ -72,15 +72,21 @@ def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
     orbit (``vertex.orbit_step``) names it once per incident cell, and
     ``edge.corner_leaving_edge`` reads each name's leaving edge
     (alias-aware: the stitch makes it total, pentagon cut corners
-    included). Exactly one candidate is in ``boundary`` (a corner's
-    three cells are mutually adjacent: no pinch points).
+    included). Only two of the three names can answer: the first
+    orbit step lands on the EXTERIOR cell across ``edge`` — the cell
+    whose absence made ``edge`` a boundary edge — so its leaving edge
+    is never in ``boundary``. The continuation is on ``c`` itself
+    (no walk) or on the third cell (two orbit walks; a derived
+    inverse orbit step could make it one — port-relevant). Exactly
+    one of the two candidates is in ``boundary`` (a corner's three
+    cells are mutually adjacent: no pinch points).
     """
-    rep = edge
-    for _ in range(3):
-        candidate = corner_leaving_edge(*rep)
-        if candidate in boundary:
-            return candidate
-        rep = orbit_step(*rep)
+    same_cell = corner_leaving_edge(*edge)
+    if same_cell in boundary:
+        return same_cell
+    third = corner_leaving_edge(*orbit_step(*orbit_step(*edge)))
+    if third in boundary:
+        return third
     raise AssertionError(f'no boundary continuation at head of {edge}')
 
 
