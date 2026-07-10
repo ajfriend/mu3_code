@@ -16,11 +16,12 @@ from .cell import (
     _sphere_to_flat,
     active_projection_name,
     cell_boundary,
+    is_pentagon,
 )
 from .cross_pentagon import EISENSTEIN_UNITS
 from .eisenstein import S3, ZETA_INV, from_complex
 from .face_lattice import get_rot
-from .neighbor import cell_ring1, resolve_position
+from .neighbor import resolve_position, step
 from .projection import Vec3
 
 
@@ -155,19 +156,19 @@ def vec3_to_cell_polished(p3d: Vec3, res: int) -> tuple:
 
 def _polish(p3d: Vec3, cell: tuple) -> tuple:
     """If ``p3d`` is inside ``cell``'s spherical boundary, returns ``cell``
-    unchanged. Otherwise returns the ring-1 neighbor across the violated
-    edge.
+    unchanged. Otherwise returns the neighbor across the violated edge.
 
-    Edge index ``k`` and ring-1 index align directly: walk-direction
-    ``D = k + 1`` (hex) or ``k + 2`` (pentagon), and ``cell_ring1``
-    returns the ring indexed by ``D - 1`` (hex) or ``D - 2`` (pentagon),
-    so both cases collapse to ``cell_ring1(cell)[k]``.
+    Scanning the cell's own edges is how the ONE violated edge is
+    located; by the single-edge invariant that edge determines the
+    unique answer — a single ``step`` in its walk direction
+    ``D = k + 1`` (hex) or ``k + 2`` (pentagon). No other neighbor is
+    ever a candidate.
     """
     boundary = cell_boundary(cell, closed=False)
     k = _polish_boundary(p3d, boundary)
     if k is None:
         return cell
-    return cell_ring1(cell)[k]
+    return step(cell, k + (2 if is_pentagon(cell) else 1))[0]
 
 
 # --- banded polish ---------------------------------------------------
