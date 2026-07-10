@@ -28,7 +28,12 @@ from conftest import random_valid_cells
 
 
 def _polygon_area(polygon):
-    return sum(_signed_spherical_excess(ring) for ring in polygon)
+    """Sum of the rings' signed excesses, normalized: a polygon whose
+    outer encloses more than a hemisphere sums negative (each signed
+    excess is the mod-4π representative in (-2π, 2π]) and needs the
+    +4π, exactly like a single ring."""
+    total = sum(_signed_spherical_excess(ring) for ring in polygon)
+    return total if total >= 0.0 else total + 4.0 * math.pi
 
 
 def _assert_area_matches(polygons, cells):
@@ -131,3 +136,17 @@ def test_validation():
 
 def test_whole_sphere_no_boundary():
     assert cells_to_multipolygon(list(cells_at_res(1))) == []
+
+
+def test_sphere_minus_two_disks():
+    """A component with NO positively-oriented ring: the sphere minus
+    two separated disks. Both rings run CW around their removed disk
+    (interior-left), so both signed excesses are negative — outer
+    selection must fall back to smallest enclosed area, not sign.
+    (Regression: the sign-based classification asserted here.)"""
+    removed = set(disk_k((0, 0, 0), 1)) | set(disk_k((3, 4, 2), 1))
+    cells = [c for c in cells_at_res(2) if c not in removed]
+    polygons = cells_to_multipolygon(cells)
+    assert len(polygons) == 1
+    assert len(polygons[0]) == 2
+    _assert_area_matches(polygons, cells)

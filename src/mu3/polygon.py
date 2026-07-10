@@ -9,11 +9,14 @@ Everything is combinatorial until the final corner projections:
   corner is 3-valent and its three incident cells are MUTUALLY
   adjacent, so a boundary can pass through a corner at most once —
   the next boundary edge out of a corner is unique.
-- Rings are traversed with the set's interior on the LEFT, so outer
-  rings are CCW (viewed from outside the sphere) and holes are CW —
-  the orientation IS the classification
-  (``cell._signed_spherical_excess``), and component-first
-  decomposition assigns each hole to its outer by construction.
+- Rings are traversed with the set's interior on the LEFT (outer
+  rings CCW viewed from outside the sphere, holes CW), and
+  component-first decomposition assigns each hole to its outer by
+  construction. The outer is the ring enclosing the SMALLEST area
+  under the right-hand rule (``_enclosed_area``) — for sub-hemisphere
+  components that is exactly the sign of the excess; for global
+  components (sphere minus several disks) it makes a valid,
+  necessarily arbitrary choice instead of failing.
 - Each ring corner is projected once (the edge HEADS — N projections
   for an N-edge ring), through a per-cell ``_CellFrame`` reused
   across consecutive same-cell edges.
@@ -21,9 +24,9 @@ Everything is combinatorial until the final corner projections:
 Scope: all cells must share one resolution — render a compacted set
 by uncompacting first (mixed-resolution edges don't chain). A set
 covering the whole sphere has no boundary and returns ``[]``.
-Components spanning more than a hemisphere are untested territory
-for the orientation classification.
 """
+
+import math
 
 import numpy as np
 
@@ -126,10 +129,19 @@ def cells_to_multipolygon(cells) -> list[list[np.ndarray]]:
             rings.append(_trace_ring(next(iter(boundary)), boundary))
         if not rings:
             continue   # component covers the sphere: no boundary
-        outers, holes = [], []
-        for ring in rings:
-            (outers if _signed_spherical_excess(ring) > 0.0
-             else holes).append(ring)
-        assert len(outers) == 1, rings
-        polygons.append([outers[0], *holes])
+        rings.sort(key=_enclosed_area)
+        polygons.append(rings)
     return polygons
+
+
+def _enclosed_area(ring: np.ndarray) -> float:
+    """Area enclosed by the ring under the right-hand rule (interior
+    on the left), in [0, 4π): the signed excess, normalized. The
+    outer-loop selection key: the outer is the ring enclosing the
+    SMALLEST area — identical to the sign of the excess for
+    sub-hemisphere components, and a valid (necessarily arbitrary)
+    choice for components without a natural outer, e.g. the sphere
+    minus two separated disks, where every ring's excess is negative.
+    """
+    a = _signed_spherical_excess(ring)
+    return a if a >= 0.0 else a + 4.0 * math.pi
