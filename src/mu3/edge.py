@@ -66,6 +66,25 @@ def edge_corner_digits(d: int) -> tuple[int, int]:
     return rotate_digit_ccw(d, 5), d
 
 
+def corner_leaving_edge(cell: tuple, x: int) -> tuple[tuple, int]:
+    """The edge out of ``cell`` whose TAIL is the corner named
+    ``(cell, x)`` — the inverse of :func:`edge_corner_digits`'s tail
+    half, made total over all six corner names by the stitch.
+
+    ``rotate_digit_ccw(x, 1)`` answers directly except from a
+    pentagon's canonical cut-corner name ``x=6``, where it lands on
+    the deleted direction — the +60° stitch (deleted wedge → d=2)
+    says what that means, so the cut corner's two same-cell names
+    (``x=6`` canonical, ``x=1`` alias) both answer ``(cell, 2)``.
+    Alias-aware by construction: safe to call on any corner name a
+    formula or orbit produces.
+    """
+    d = rotate_digit_ccw(x, 1)
+    if d == 1 and is_pentagon(cell):
+        d = 2
+    return cell, d
+
+
 @dataclass(frozen=True, slots=True)
 class DirectedEdge:
     """``cell`` -> its ring-1 neighbor in digit direction ``d``."""
