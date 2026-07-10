@@ -66,6 +66,16 @@ def edge_corner_digits(d: int) -> tuple[int, int]:
     return rotate_digit_ccw(d, 5), d
 
 
+def edge_reverse(cell: tuple, d: int) -> tuple[tuple, int]:
+    """Wire-pair reverse: the same undirected edge traversed the other
+    way, as ``(cell, d)``. One walk; the direction is ``opposite(d)``
+    transported by the arrow. The single implementation —
+    :meth:`DirectedEdge.reverse` delegates here. No validation (the
+    fast tier): lift to ``DirectedEdge`` for the validated form."""
+    c, rot = step(cell, d)
+    return c, rotate_digit_ccw(opposite(d), rot)
+
+
 def corner_leaving_edge(cell: tuple, x: int) -> tuple[tuple, int]:
     """The edge out of ``cell`` whose TAIL is the corner named
     ``(cell, x)`` — the inverse of :func:`edge_corner_digits`'s tail
@@ -106,9 +116,9 @@ class DirectedEdge:
 
     def reverse(self) -> 'DirectedEdge':
         """The same undirected edge, traversed the other way. One walk;
-        the direction is opposite(d) transported by the arrow."""
-        c, rot = step(self.cell, self.d)
-        return DirectedEdge(c, rotate_digit_ccw(opposite(self.d), rot))
+        the direction is opposite(d) transported by the arrow
+        (:func:`edge_reverse` is the implementation)."""
+        return DirectedEdge(*edge_reverse(self.cell, self.d))
 
     def rotate_ccw(self, steps: int = 1) -> 'DirectedEdge':
         """The next outgoing edge(s) CCW around the origin cell —

@@ -19,6 +19,7 @@ from mu3.edge import (
     DirectedEdge,
     UndirectedEdge,
     corner_leaving_edge,
+    edge_reverse,
     directed_edges_of_cell,
     edge_corner_digits,
     edge_to_boundary,
@@ -253,3 +254,13 @@ def test_corner_leaving_edge_inverts_tail():
             if is_pentagon(c):
                 assert corner_leaving_edge(c, 6) == (c, 2)
                 assert corner_leaving_edge(c, 1) == (c, 2)
+
+
+def test_edge_reverse_matches_directed_edge():
+    """The wire-pair reverse is the DirectedEdge.reverse implementation
+    (delegation makes them equal by construction; this pins the wire
+    form's own roundtrip too)."""
+    for e in _all_edges():
+        r = edge_reverse(e.cell, e.d)
+        assert r == (e.reverse().cell, e.reverse().d)
+        assert edge_reverse(*r) == (e.cell, e.d)
