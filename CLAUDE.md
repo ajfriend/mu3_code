@@ -55,7 +55,13 @@ point location goes `_sphere_to_flat` → exact snap
 (`eisenstein.from_complex`) → `resolve_position` → banded spherical
 polish (`_polish_banded`: flat edge distances gate which edges get a
 great-circle side test; stitch-region cells and actual crossings fall
-back to the full `_polish`).
+back to the full `_polish`). The polish contract is the SINGLE-EDGE
+INVARIANT: the raw cell is correct or off by exactly one violated
+edge — an invariant of the architecture (exact shared corners confine
+flat/spherical mismatch to per-edge bow lenses), never a search
+radius. Do not reason "if X changes we may need to check 2-3 hops":
+if a margin erodes, the projection or its fitted constants are what
+get fixed (`test_one_hop_contract.py` fails by name).
 Correctness rests on implementation-agnostic tests only:
 `test_neighbor.py` invariants (size/symmetry/distance-band/CCW/
 primary-last) and `test_point_location.py` containment.

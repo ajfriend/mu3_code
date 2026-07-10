@@ -92,9 +92,10 @@ def vec3_to_cell_raw(p3d: Vec3, res: int) -> tuple:
     No spherical polish.
 
     The returned cell is *geometrically close* to ``p3d`` but may not
-    contain it: it can be off by at most one ring-1 hop. Use
-    :func:`vec3_to_cell_polished` (or :func:`vec3_to_cell`) for the
-    contained-cell guarantee.
+    contain it: by the single-edge invariant it is the containing cell
+    or the neighbor across exactly one violated edge — never anything
+    further. Use :func:`vec3_to_cell_polished` (or :func:`vec3_to_cell`)
+    for the contained-cell guarantee.
 
     Steps:
 
@@ -125,17 +126,23 @@ def _vec3_to_cell_detailed(p3d: Vec3, res: int):
 
 
 def vec3_to_cell_polished(p3d: Vec3, res: int) -> tuple:
-    """:func:`vec3_to_cell_raw` + single-hop spherical polish.
+    """:func:`vec3_to_cell_raw` + the single-edge spherical polish.
 
-    The 1-ring around the raw candidate is sufficient buffer. This is
-    a theorem whose HYPOTHESIS is a property of the active projection:
-    flat and spherical cell corners agree exactly, so the mismatch is
-    the sagitta of pulled-back geodesic edges, and one hop suffices
-    while the worst sagitta stays under half the lattice spacing. The
-    hypothesis is measured and asserted (with headroom) by
-    ``tests/test_one_hop_contract.py`` — a projection swap that erodes
-    the margin fails there, by name. At res 0 polish is a no-op (raw
-    is already the spherical Voronoi region of an icosa vertex).
+    THE SINGLE-EDGE INVARIANT: the raw cell is the containing cell or
+    the ring-1 neighbor across exactly one violated edge — never
+    anything further. Flat and spherical corners agree exactly (both
+    project the same lattice points), so the two descriptions disagree
+    only inside per-edge bow lenses pinned at shared corners, each
+    straddled by the raw cell and that one edge-neighbor. This is an
+    invariant every admissible projection must uphold, NOT a search
+    radius: its margin is measured and asserted per projection by
+    ``tests/test_one_hop_contract.py``, and when a projection erodes it
+    the projection (or its fitted band) is what gets fixed — checking
+    2-3 hops is never the answer, since a bow escaping the
+    edge-neighbor would mean flat adjacency no longer models spherical
+    adjacency, voiding the indexing contract wholesale. At res 0 polish
+    is a no-op (raw is already the spherical Voronoi region of an icosa
+    vertex).
 
     The polish itself is the banded fast path (:func:`_polish_banded`);
     :func:`_polish` is the full-boundary reference it falls back to.

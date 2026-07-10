@@ -169,7 +169,7 @@ def test_polish_handles_boundary_points():
 # triples harvested from /tmp/edge_inside_test.py — points placed at 99.9%
 # of the center→edge-midpoint segment of `expected_cell`. The forward
 # pipeline (sphere→flat→snap→step) lands on `candidate_before_polish`,
-# and the single-hop polish corrects it back to `expected_cell`.
+# and the single-edge polish corrects it back to `expected_cell`.
 #
 # Frozen here so that any regression in polish, twin disambiguation, or
 # the forward snap is caught immediately — not just statistically by the

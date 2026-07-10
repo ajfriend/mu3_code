@@ -1,15 +1,23 @@
-"""The one-hop contract and its projection hypothesis, discharged.
+"""The SINGLE-EDGE contract and its projection hypothesis, discharged.
 
-``vec3_to_cell_raw``'s contract is: the raw cell is the containing cell
-or one ring-1 hop from it, so ``_polish``'s single hop suffices. The
-grid half of that is exact (nearest-lattice snap + exact resolve). The
-geometric half is a THEOREM WITH A HYPOTHESIS about the active
-projection: cell corners agree exactly between the flat and spherical
-descriptions (they are projections of exact lattice points), so the
-flat-vs-spherical mismatch is the *sagitta* — how far the pulled-back
-geodesic edge bows away from the straight flat edge between the same
-corners. One hop is guaranteed while the worst sagitta stays under
-half the lattice spacing.
+``vec3_to_cell_raw``'s contract is: the raw cell is the containing
+cell or the neighbor across exactly ONE violated edge — so ``_polish``
+corrects by that one edge and is done. "One hop" is the consequence;
+SINGLE EDGE is the invariant, and it is an invariant of the
+architecture, not a radius to tune: cell corners agree exactly between
+the flat and spherical descriptions (they are projections of the same
+exact lattice points), so the two descriptions can disagree only
+inside per-edge bow lenses pinned at shared corners, each straddled by
+the raw cell and that one edge-neighbor. The *sagitta* — how far the
+pulled-back geodesic edge bows from the straight flat edge between the
+same corners — measures the lens; the invariant holds while the worst
+sagitta stays under half the lattice spacing, and every admissible
+projection MUST keep it there. If a projection erodes the margin, the
+projection (or its fitted constants) is what gets fixed or rejected —
+"check 2-3 hops instead" is never the answer: a bow escaping the
+edge-neighbor would mean flat adjacency no longer models spherical
+adjacency, voiding the snap witness, the edge→ring-1 correction, and
+the banded gate all at once.
 
 This test discharges the hypothesis for the active projection by
 measuring the worst sagitta directly, and exercises the contract
@@ -25,8 +33,9 @@ Measured for AlphaSlerp (2026-07-02): max sagitta 0.250 at res 1,
 0.144 at res 2, ~0.12 at res 3, shrinking thereafter. The assert
 threshold 0.35 is an early-warning line between the measured 0.25 and
 the theorem's 0.5: a projection swap that trips it but stays under 0.5
-still satisfies one-hop — revisit the threshold consciously if that
-ever happens.
+technically still satisfies the invariant — treat that as a projection
+on its last margin, to be fixed or rejected, never as license to widen
+the search.
 
 The banded polish (``mu3.index._polish_banded``) sharpens the same
 hypothesis into a per-res, per-edge-position bow envelope with its own
@@ -93,8 +102,8 @@ def _contains(p3d, cell, tol=1e-9):
 
 def _check_contract(p3d, base, w, res):
     """Raw resolve of a boundary point must be a containing cell or
-    one ring-1 hop from one (reuses the caller's pulled-back
-    position)."""
+    one edge crossing from one (checked as ring-1 membership; reuses
+    the caller's pulled-back position)."""
     raw = resolve_position(base, w, res)
     if _contains(p3d, raw):
         return
@@ -157,7 +166,8 @@ def test_one_hop_margin_and_contract(scope):
             _check_contract(gm, base, zm, res)
 
     assert worst < _SAGITTA_MAX, \
-        f'{scope}: worst sagitta {worst:.4f} — one-hop margin eroding ' \
+        f'{scope}: worst sagitta {worst:.4f} — single-edge margin ' \
+        f'eroding; fix the projection, never the hop count ' \
         f'(theorem fails at 0.5; see module docstring)'
 
 
