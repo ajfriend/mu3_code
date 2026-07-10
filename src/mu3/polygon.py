@@ -36,9 +36,8 @@ from .cell import (
     cell_resolution,
     is_valid_cell,
 )
-from .edge import corner_leaving_edge, outgoing_directions
+from .edge import corner_leaving_edge, edge_reverse, outgoing_directions
 from .neighbor import _step_fast
-from .vertex import orbit_step
 
 
 def _component_boundaries(cell_set: set, res: int) -> list[set]:
@@ -66,25 +65,24 @@ def _component_boundaries(cell_set: set, res: int) -> list[set]:
 
 
 def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
-    """The unique boundary edge out of ``edge``'s head corner.
-
-    The head corner of ``(c, d)`` is corner ``d`` of ``c``; its Z/3
-    orbit (``vertex.orbit_step``) names it once per incident cell, and
-    ``edge.corner_leaving_edge`` reads each name's leaving edge
-    (alias-aware: the stitch makes it total, pentagon cut corners
-    included). Only two of the three names can answer: the first
-    orbit step lands on the EXTERIOR cell across ``edge`` — the cell
-    whose absence made ``edge`` a boundary edge — so its leaving edge
-    is never in ``boundary``. The continuation is on ``c`` itself
-    (no walk) or on the third cell (two orbit walks; a derived
-    inverse orbit step could make it one — port-relevant). Exactly
-    one of the two candidates is in ``boundary`` (a corner's three
-    cells are mutually adjacent: no pinch points).
+    """The unique boundary edge out of ``edge``'s head corner — the
+    textbook DCEL boundary walk, evaluated on demand: rotate within
+    the cell (``corner_leaving_edge``, pure arithmetic, alias-aware at
+    pentagon cut corners); if that edge is interior, hop its twin
+    (``edge_reverse``, one walk) and rotate again on the cell across
+    it. A 3-valent corner terminates the walk in at most one hop: the
+    only other incident cell is the EXTERIOR one across ``edge``,
+    which can't own a boundary edge. This computes lazily what
+    loop-surgery designs cache in linked next-pointers.
     """
     same_cell = corner_leaving_edge(*edge)
     if same_cell in boundary:
         return same_cell
-    third = corner_leaving_edge(*orbit_step(*orbit_step(*edge)))
+    # same_cell is interior (its dest is in the set): hop its twin.
+    # The twin's head is this same corner (the twin law), named by the
+    # twin's own direction digit.
+    nb, dr = edge_reverse(*same_cell)
+    third = corner_leaving_edge(nb, dr)
     if third in boundary:
         return third
     raise AssertionError(f'no boundary continuation at head of {edge}')
