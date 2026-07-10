@@ -4,23 +4,41 @@
 names the corner of ``cell`` at flat position ``center + eps/s3``
 (``eps`` the unit at digit ``d``'s angle, ``s3 = 1 - omega``) — the
 corner between the neighbor directions ``d`` and ``d`` + 60 degrees.
+
+A name is an INSTRUCTION — a starting cell plus a direction — not a
+label. Every instruction is valid and denotes a point; several
+instructions reach the same point, and canonicalization
+(:class:`Vertex`) evaluates an instruction to the distinguished name
+of its endpoint. Name-consuming operations either canonicalize or are
+alias-aware (``edge.corner_leaving_edge``); nothing rejects a name
+for being non-canonical. (The same discipline as phantom cell paths:
+digit strings are instructions too, and some points admit several.)
+
 Every corner is 3-valent (pentagon corners included), so a vertex is
 the ``Z/3`` orbit ``{(c, eps), (c + eps, eps*omega),
-(c + eps*(1 + omega), eps*omega**2)}``; the canonical representative
-is the minimum ``(cell, d)`` pair (lex-min cell, smallest-d
-tie-break). The orbit step is one arrow-transported walk —
-``(dest, rotate_digit_ccw(d, rot + 2))`` with ``(dest, rot) =
-step(cell, d)`` — the same shape as ``DirectedEdge.reverse`` (offset
-3); the offset 2 is ``omega = zeta**2`` read through the arrow, and is
-pinned by the orbit tests (``rho^3 == id`` fails for every other
-offset).
+(c + eps*(1 + omega), eps*omega**2)}`` — one instruction per incident
+cell; the canonical representative is the minimum ``(cell, d)`` pair
+(lex-min cell, smallest-d tie-break). The orbit step is one
+arrow-transported walk — ``(dest, rotate_digit_ccw(d, rot + 2))``
+with ``(dest, rot) = step(cell, d)`` — the same shape as
+``DirectedEdge.reverse`` (offset 3); the offset 2 is
+``omega = zeta**2`` read through the arrow, and is pinned by the
+orbit tests (``rho^3 == id`` fails for every other offset).
 
 Pentagon cut-corner alias: at a pentagon(-center) cell the corner
 names ``d=6`` (pre-stitch, in the deleted wedge) and ``d=1``
-(post-stitch) develop to the same surface corner — the one corner pair
-the +60-degree stitch identifies within a single cell. ``d=6`` is
-canonical, keeping "pentagons have no ``d=1``" uniform with
-``mu3.edge``; constructors accept and normalize the ``d=1`` form.
+(post-stitch) develop to the same surface corner — the one corner
+where two instructions share a starting cell (the +60-degree stitch
+identifies them), which is exactly why per-incident-cell enumeration
+(the orbit) needs the alias fold. ``d=6`` is canonical, keeping
+"pentagons have no ``d=1``" uniform with ``mu3.edge``; constructors
+accept and normalize the ``d=1`` form.
+
+Note the pair ``(cell, d)`` also serves as an EDGE instruction (a
+full step to a neighbor), which is NOT total: the deleted ``d=1`` has
+no neighbor on a pentagon (``DirectedEdge`` rejects what ``Vertex``
+accepts). Corner instructions are total, edge instructions are not —
+the two readings diverge exactly at the cut.
 
 Corners live on the aperture-3 refinement of the cell lattice:
 ``eisenstein.scaled_corner`` (``s3*Z_c + eps``) is an exact ``Eis``,
