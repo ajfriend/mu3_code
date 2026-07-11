@@ -19,22 +19,22 @@ from mu3.edge import (
     DirectedEdge,
     UndirectedEdge,
     corner_leaving_edge,
-    edge_reverse,
     directed_edges_of_cell,
     edge_corner_digits,
+    edge_reverse,
     edge_to_boundary,
     opposite,
     outgoing_directions,
     undirected_edges_of_cell,
 )
 from mu3.neighbor import step
-from conftest import random_valid_cells
 from mu3.vertex import (
     edge_to_vertices,
     edge_vertices,
     vertex_to_vec3,
     vertices_of_cell,
 )
+from conftest import random_valid_cells
 
 
 def _all_cells():
@@ -261,6 +261,6 @@ def test_edge_reverse_matches_directed_edge():
     (delegation makes them equal by construction; this pins the wire
     form's own roundtrip too)."""
     for e in _all_edges():
-        r = edge_reverse(e.cell, e.d)
-        assert r == (e.reverse().cell, e.reverse().d)
-        assert edge_reverse(*r) == (e.cell, e.d)
+        rev = e.reverse()
+        assert edge_reverse(e.cell, e.d) == (rev.cell, rev.d)
+        assert edge_reverse(rev.cell, rev.d) == (e.cell, e.d)

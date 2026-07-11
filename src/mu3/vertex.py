@@ -61,9 +61,8 @@ every vertex with period 3 — across the pentagon cut too, where the
 ``d=1`` alias normalization is what makes it close. The cross-object
 laws are pinned in ``tests/test_incidence.py``.
 
-Tier note: ``Vertex`` is the IDENTITY tier; positions-only callers
-want :func:`vertex_to_vec3` / ``mu3.edge.edge_to_boundary`` (the tier
-rule lives in the ``mu3.edge`` module docstring).
+Tier note: ``Vertex`` is the IDENTITY tier (the tier rule lives in
+the ``mu3.edge`` module docstring).
 """
 
 from dataclasses import dataclass
@@ -97,23 +96,17 @@ def _normalize(cell: tuple, d: int) -> tuple[tuple, int]:
     return cell, d
 
 
-def orbit_step(cell: tuple, d: int) -> tuple[tuple, int]:
+def _orbit_step(cell: tuple, d: int) -> tuple[tuple, int]:
     """``rho(c, eps) = (c + eps, eps*omega)``: the next incident cell
     CCW around the corner, with its name for the same corner —
-    ``omega`` transported by the walk's arrow.
-
-    The wire-tier orbit operation ("the other names of this corner"):
-    three applications cycle a corner's names, one per incident cell,
-    no canonicalization — the walk counterpart of
-    :meth:`Vertex.representatives`, promoted public for the same
-    reason as ``edge.corner_leaving_edge``."""
+    ``omega`` transported by the walk's arrow."""
     dest, rot = step(cell, d)
     return _normalize(dest, rotate_digit_ccw(d, rot + 2))
 
 
 def _orbit(rep: tuple[tuple, int]):
-    r2 = orbit_step(*rep)
-    return (rep, r2, orbit_step(*r2))
+    r2 = _orbit_step(*rep)
+    return (rep, r2, _orbit_step(*r2))
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,10 +168,10 @@ class Vertex:
     def adjacent_vertices(self) -> tuple['Vertex', ...]:
         """The 3 corners one boundary segment away — the far endpoint
         (tail) of each entering edge, matching ``edges_in()`` order.
-        Uses ``edge_vertices``' tail formula directly; the head would
-        just be this vertex again."""
+        Each is the tail digit of ``edge_corner_digits``; the head
+        would just be this vertex again."""
         return tuple(
-            Vertex(c, rotate_digit_ccw(d, 5))
+            Vertex(c, edge_corner_digits(d)[0])
             for c, d in self.representatives()
         )
 

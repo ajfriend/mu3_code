@@ -21,7 +21,7 @@ from mu3.vertex import (
     Vertex,
     _normalize,
     _orbit,
-    orbit_step,
+    _orbit_step,
     vertex_directions,
     vertex_to_vec3,
     vertices_of_cell,
@@ -34,7 +34,7 @@ def test_orbit_closes_with_three_distinct_cells():
     for c in law_sweep_cells():
         for d in vertex_directions(c):
             r1, r2, r3 = _orbit(_normalize(c, d))
-            assert orbit_step(*r3) == r1, (c, d)
+            assert _orbit_step(*r3) == r1, (c, d)
             assert len({r1[0], r2[0], r3[0]}) == 3, (c, d)
 
 
