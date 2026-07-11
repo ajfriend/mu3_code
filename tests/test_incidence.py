@@ -35,7 +35,8 @@ from adversarial import (
     phantom_corner_cells,
 )
 from mu3 import cell_boundary, cells_at_res
-from mu3.edge import DirectedEdge, directed_edges_of_cell
+from mu3.edge import DirectedEdge, corner_leaving_edge, directed_edges_of_cell
+from mu3.eisenstein import DIGIT_OFFSET, ZETA
 from mu3.vertex import (
     Vertex,
     edge_vertices,
@@ -258,3 +259,22 @@ def test_zoo_cut_end_and_phantom_corner_stars():
                      .next_around_vertex()
         assert sig3 == ein[0], v
         assert {e.reverse() for e in ein} == set(v.edges_out()), v
+
+
+def test_stitch_zeta_unifies_the_folds():
+    """The two pentagon alias folds are one fact: the stitch is
+    multiplication by ζ, identifying each pentagon object with its
+    ζ-image. Exactly: ζ·offset(6) == offset(1) (the cut corner's two
+    names) and ζ·offset(1) == offset(2) (the deleted direction's
+    image). The code folds realize those identifications — corner
+    names 1 → 6 (``vertex._normalize``, via the Vertex constructor)
+    and directions 1 → 2 (``edge.corner_leaving_edge``); both are
+    pure functions of pentagon-ness, so one pentagon suffices (the
+    folds are pinned exhaustively in
+    ``test_edge.test_corner_leaving_edge_inverts_tail``)."""
+    assert ZETA * DIGIT_OFFSET[6] == DIGIT_OFFSET[1]
+    assert ZETA * DIGIT_OFFSET[1] == DIGIT_OFFSET[2]
+    pent = (0, 0)
+    assert Vertex(pent, 1) == Vertex(pent, 6)
+    assert corner_leaving_edge(pent, 1) == corner_leaving_edge(pent, 6) \
+        == (pent, 2)

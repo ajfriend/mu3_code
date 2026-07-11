@@ -25,33 +25,25 @@ rotated by ``arg(s7b) ≈ +19.106°``.
 
 """
 
-import cmath
 import math
 
-omega = cmath.exp(2j * cmath.pi / 3)
+from .eisenstein import DIGIT_OFFSET, S3, S7A, S7B, UNITS
+
+# Float tables in this module DERIVE from the exact eisenstein tables
+# (the declared single source of truth) via to_complex — no independent
+# float constants. Same convention as cross_pentagon.EISENSTEIN_UNITS.
+omega = UNITS[2].to_complex()
 
 # Face-2D distance from face center to face corner, on the unit icosahedron.
 # Equals tan(arccos(V · C_f)) where V is an icosa vertex and C_f is an
 # incident face center; closed form = sqrt(14 - 6*sqrt(5)) ≈ 0.7639.
 r_face = math.sqrt(14 - 6 * math.sqrt(5))
 
-units = (
-    1,
-    1 + omega,
-    omega,
-    -1,
-    -1 - omega,
-    -omega,
-)
-
+# Digit -> offset in the flat plane; angles per the module docstring.
+# (The float view of the units themselves is
+# cross_pentagon.EISENSTEIN_UNITS — one home, not two.)
 digit_offset: dict[int, complex] = {
-    0: 0,
-    1: 1 + omega,   #  60°  (DELETED in pentagons; immediately CCW of primary)
-    2: omega,       # 120°
-    3: -1,          # 180°
-    4: -1 - omega,  # 240°
-    5: -omega,      # 300°
-    6: 1,           #   0°  (along the primary direction)
+    d: z.to_complex() for d, z in DIGIT_OFFSET.items()
 }
 
 pentagon_skipped_digit = 1
@@ -90,9 +82,9 @@ def digit_for_offset(z: complex) -> int:
         return -1
     return d
 
-s3 = 1 - omega
-s7a = 2 - omega
-s7b = 3 + omega
+s3 = S3.to_complex()
+s7a = S7A.to_complex()
+s7b = S7B.to_complex()
 
 
 def get_rot(res: int) -> complex:

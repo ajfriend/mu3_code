@@ -264,3 +264,5 @@ def test_edge_reverse_matches_directed_edge():
         rev = e.reverse()
         assert edge_reverse(e.cell, e.d) == (rev.cell, rev.d)
         assert edge_reverse(rev.cell, rev.d) == (e.cell, e.d)
+
+

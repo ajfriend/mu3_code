@@ -5,7 +5,7 @@ import random
 import pytest
 
 from mu3.cell import _eisenstein_center, cells_at_res
-from mu3.cross_pentagon import EISENSTEIN_UNITS, z_to_cell
+from mu3.cross_pentagon import z_to_cell
 from mu3.eisenstein import (
     DIGIT_OFFSET,
     ONE,
@@ -22,19 +22,12 @@ from mu3.eisenstein import (
     hex_dist,
     scaled_center,
 )
-from mu3.face_lattice import digit_offset, divmod_ei, get_rot, s7a, s7b
+from mu3.face_lattice import divmod_ei, get_rot
 
-
-def test_units_match_complex_units():
-    for i in range(6):
-        assert UNITS[i].to_complex() == pytest.approx(EISENSTEIN_UNITS[i])
-
-
-def test_constants_match_face_lattice():
-    assert S7A.to_complex() == pytest.approx(s7a)
-    assert S7B.to_complex() == pytest.approx(s7b)
-    for d in range(7):
-        assert DIGIT_OFFSET[d].to_complex() == pytest.approx(digit_offset[d])
+# (The old exact-vs-float constant cross-checks are gone: the float
+# tables now DERIVE from the exact ones, so asserting they match had
+# become a tautology. get_rot_eis vs get_rot below keeps its content —
+# it compares two different formulas.)
 
 
 def test_zeta_powers():
