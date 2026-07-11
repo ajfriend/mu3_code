@@ -306,13 +306,15 @@ def cell_center(cell: Sequence[int]) -> Vec3:
 
 
 def _spherical_polygon_area(V: np.ndarray) -> float:
-    """Spherical polygon area on the unit sphere (steradians):
+    """Right-hand-rule enclosed area of the ring, in [0, 4π):
     :func:`_signed_spherical_excess` (the numerics live there),
-    normalized to positive.
+    normalized.
 
-    Sign convention: CCW-from-outside convex polygons (every mu3
-    cell) sum to a positive value directly. The +4π fallback catches
-    pathological non-convex inputs.
+    CCW-from-outside rings (every mu3 cell, every outer boundary) are
+    already positive; CW rings — routine, e.g. polygon holes read as
+    the area they enclose — take the +4π. Doubles as
+    ``mu3.polygon``'s ring-orientation sort key: the outer ring is
+    the one enclosing the smallest area.
     """
     sum_val = _signed_spherical_excess(V)
     if sum_val < 0.0:
@@ -415,10 +417,11 @@ def _signed_spherical_excess(V: np.ndarray) -> float:
 def cell_area(cell: Sequence[int]) -> float:
     """Spherical area of the cell, in steradians (unit-sphere).
 
-    Always positive (the H3 cagnoli implementation in
-    ``_spherical_polygon_area`` normalizes any negative signed-area sums
-    that arise for southern-hemisphere or pole-wrapping cells). Sum
-    over every cell at a given resolution equals 4π (the sphere).
+    Always positive (the chord-based VOS excess in
+    ``_signed_spherical_excess``, normalized by
+    ``_spherical_polygon_area`` — the sign is ring orientation, and
+    cell boundaries are CCW). Sum over every cell at a given
+    resolution equals 4π (the sphere).
     """
     return _spherical_polygon_area(cell_boundary(cell, closed=False))
 

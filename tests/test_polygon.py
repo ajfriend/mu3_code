@@ -143,7 +143,8 @@ def test_sphere_minus_two_disks():
     two separated disks. Both rings run CW around their removed disk
     (interior-left), so both signed excesses are negative — outer
     selection must fall back to smallest enclosed area, not sign.
-    (Regression: the sign-based classification asserted here.)"""
+    (Regression: the earlier sign-based outer pick raised on this
+    input.)"""
     removed = set(disk_k((0, 0, 0), 1)) | set(disk_k((3, 4, 2), 1))
     cells = [c for c in cells_at_res(2) if c not in removed]
     polygons = cells_to_multipolygon(cells)

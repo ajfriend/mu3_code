@@ -2,9 +2,9 @@
 
 Everything is combinatorial until the final corner projections:
 
-- One sweep classifies every (cell, direction) pair of the set: the
-  walk destination either leaves the set (a boundary edge, kept as
-  the wire pair ``(cell, d)``) or grows the connected component.
+- One sweep classifies every (cell, direction) pair of the set: a
+  walk destination outside the set is a boundary edge (kept as the
+  wire pair ``(cell, d)``); one still unvisited grows the component.
 - Ring chaining is walk-based, no vertex canonicalization: every grid
   corner is 3-valent and its three incident cells are MUTUALLY
   adjacent, so a boundary can pass through a corner at most once —
@@ -13,7 +13,7 @@ Everything is combinatorial until the final corner projections:
   rings CCW viewed from outside the sphere, holes CW), and
   component-first decomposition assigns each hole to its outer by
   construction. The outer is the ring enclosing the SMALLEST area
-  under the right-hand rule (``_enclosed_area``) — for sub-hemisphere
+  under the right-hand rule — for sub-hemisphere
   components that is exactly the sign of the excess; for global
   components (sphere minus several disks) it makes a valid,
   necessarily arbitrary choice instead of failing.
@@ -26,13 +26,11 @@ by uncompacting first (mixed-resolution edges don't chain). A set
 covering the whole sphere has no boundary and returns ``[]``.
 """
 
-import math
-
 import numpy as np
 
 from .cell import (
     _CellFrame,
-    _signed_spherical_excess,
+    _spherical_polygon_area,
     cell_resolution,
     is_valid_cell,
 )
@@ -72,20 +70,18 @@ def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
     (``edge_reverse``, one walk) and rotate again on the cell across
     it. A 3-valent corner terminates the walk in at most one hop: the
     only other incident cell is the EXTERIOR one across ``edge``,
-    which can't own a boundary edge. This computes lazily what
-    loop-surgery designs cache in linked next-pointers.
+    which can't own a boundary edge — so the twin-hop result IS the
+    continuation, no test needed (``_trace_ring``'s removal raises
+    loudly if that ever broke). This computes what loop-surgery
+    designs cache in linked next-pointers.
     """
     same_cell = corner_leaving_edge(*edge)
     if same_cell in boundary:
         return same_cell
-    # same_cell is interior (its dest is in the set): hop its twin.
     # The twin's head is this same corner (the twin law), named by the
     # twin's own direction digit.
     nb, dr = edge_reverse(*same_cell)
-    third = corner_leaving_edge(nb, dr)
-    if third in boundary:
-        return third
-    raise AssertionError(f'no boundary continuation at head of {edge}')
+    return corner_leaving_edge(nb, dr)
 
 
 def _trace_ring(start: tuple, boundary: set) -> np.ndarray:
@@ -133,19 +129,8 @@ def cells_to_multipolygon(cells) -> list[list[np.ndarray]]:
             rings.append(_trace_ring(next(iter(boundary)), boundary))
         if not rings:
             continue   # component covers the sphere: no boundary
-        rings.sort(key=_enclosed_area)
+        # Outer first: smallest right-hand-rule enclosed area (see the
+        # module docstring; sphere-minus-two-disks is why not sign).
+        rings.sort(key=_spherical_polygon_area)
         polygons.append(rings)
     return polygons
-
-
-def _enclosed_area(ring: np.ndarray) -> float:
-    """Area enclosed by the ring under the right-hand rule (interior
-    on the left), in [0, 4π): the signed excess, normalized. The
-    outer-loop selection key: the outer is the ring enclosing the
-    SMALLEST area — identical to the sign of the excess for
-    sub-hemisphere components, and a valid (necessarily arbitrary)
-    choice for components without a natural outer, e.g. the sphere
-    minus two separated disks, where every ring's excess is negative.
-    """
-    a = _signed_spherical_excess(ring)
-    return a if a >= 0.0 else a + 4.0 * math.pi
