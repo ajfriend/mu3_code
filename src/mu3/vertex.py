@@ -90,7 +90,12 @@ def vertex_directions(cell: Sequence[int]) -> tuple[int, ...]:
 
 def _normalize(cell: tuple, d: int) -> tuple[tuple, int]:
     """Canonical name of a corner within its own cell: the pentagon
-    cut corner's post-stitch name ``d=1`` folds onto ``d=6``."""
+    cut corner's post-stitch name ``d=1`` folds onto ``d=6``.
+
+    The same stitch ζ-action as ``edge.corner_leaving_edge``'s
+    direction fold (``1 → 2``), read in corner-name coordinates —
+    pinned as one law in
+    ``test_edge.test_stitch_zeta_unifies_the_folds``."""
     if d == 1 and is_pentagon(cell):
         return cell, 6
     return cell, d

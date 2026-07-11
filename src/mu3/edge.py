@@ -89,6 +89,12 @@ def corner_leaving_edge(cell: tuple, x: int) -> tuple[tuple, int]:
     (``x=6`` canonical, ``x=1`` alias) both answer ``(cell, 2)``.
     Alias-aware by construction: safe to call on any corner name a
     formula or orbit produces.
+
+    This fold (direction ``1 → 2``) and the corner-name fold in
+    ``vertex._normalize`` (``1 → 6``) are the SAME fact — the stitch
+    is multiplication by ζ, identifying each pentagon object with its
+    ζ-image — read in two coordinate systems. Pinned as one law in
+    ``test_edge.test_stitch_zeta_unifies_the_folds``.
     """
     d = rotate_digit_ccw(x, 1)
     if d == 1 and is_pentagon(cell):

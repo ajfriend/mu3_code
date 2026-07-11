@@ -19,7 +19,7 @@ import pytest
 
 from mu3 import cells_at_res
 from mu3.cell import _signed_spherical_excess, cell_area, cell_boundary
-from mu3.edge import outgoing_directions
+from mu3.edge import corner_leaving_edge, edge_reverse, outgoing_directions
 from mu3.island import island_edges
 from mu3.neighbor import step
 from mu3.polygon import cells_to_multipolygon
@@ -136,6 +136,75 @@ def test_validation():
 
 def test_whole_sphere_no_boundary():
     assert cells_to_multipolygon(list(cells_at_res(1))) == []
+
+
+# --- the turning law: discrete Gauss-Bonnet on traced rings ------------
+#
+# Every ring continuation is a turn — case A (same-cell) one way,
+# case B (twin hop) the other — and on the flat cone surface curvature
+# sits only at the 12 pentagons (defect pi/3 = one 60-degree turn). For
+# a ring traced with interior-on-left:
+#
+#     n_A - n_B = 6 - P
+#
+# with P the pentagons inside the region LEFT of the ring (inside the
+# CURVE — a pentagon sitting in a hole of the set still counts). An
+# exact integer invariant over the same walk the tracer performs: pins
+# chaining, orientation, and the alias fold with no float arithmetic.
+
+
+def _ring_turns(cells):
+    """(n_A, n_B) per ring, via the same walk _trace_ring performs."""
+    cell_set = {tuple(c) for c in cells}
+    boundary = {(c, d) for c in cell_set for d in outgoing_directions(c)
+                if step(c, d)[0] not in cell_set}
+    out = []
+    while boundary:
+        start = next(iter(boundary))
+        n_a = n_b = 0
+        edge = start
+        while True:
+            cand = corner_leaving_edge(*edge)
+            if cand in boundary:
+                n_a += 1
+                nxt = cand
+            else:
+                n_b += 1
+                nb, dr = edge_reverse(*cand)
+                nxt = corner_leaving_edge(nb, dr)
+            boundary.remove(nxt)
+            if nxt == start:
+                break
+            edge = nxt
+        out.append((n_a, n_b))
+    return out
+
+
+@pytest.mark.parametrize('cells,turns', [
+    (disk_k((4, 3, 2), 0), [6]),          # hex: P=0
+    (disk_k((0, 0, 0), 0), [5]),          # pentagon: encloses itself, P=1
+    (disk_k((4, 3, 2), 2), [6]),
+    (disk_k((0, 0, 0), 2), [5]),
+    # punctured hex disk: the hole ring's LEFT region is the sphere
+    # minus the disk, holding all 12 pentagons -> 6 - 12 = -6
+    ([c for c in disk_k((4, 3, 2), 2) if c != (4, 3, 2)], [-6, 6]),
+    # pentagon disk minus its center: the pentagon is inside the outer
+    # CURVE (in the hole) -> outer 5; the hole ring's left region holds
+    # the other 11 -> -5
+    ([c for c in disk_k((0, 0, 0), 2) if c != (0, 0, 0)], [-5, 5]),
+])
+def test_turning_law(cells, turns):
+    assert sorted(a - b for a, b in _ring_turns(cells)) == sorted(turns)
+
+
+def test_turning_law_sphere_minus_two_disks():
+    """Both rings turn -6: the turning-number statement that no
+    natural outer exists (each left region is a sphere-minus-disk
+    holding all 12 pentagons), agreeing with the min-area rule's
+    'any choice is valid'."""
+    removed = set(disk_k((4, 3, 2), 1)) | set(disk_k((9, 2, 5), 1))
+    cells = [c for c in cells_at_res(2) if c not in removed]
+    assert sorted(a - b for a, b in _ring_turns(cells)) == [-6, -6]
 
 
 def test_sphere_minus_two_disks():
