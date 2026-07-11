@@ -120,7 +120,9 @@ needed on the fast path. Pinned by exhaustive carry-vs-walk equality
 - `src/mu3/neighbor.py` — exact `cell_ring1` + `resolve_position`
   (the holonomy walk), `step` (the arrow-returning walk).
 - `src/mu3/edge.py` — `DirectedEdge`/`UndirectedEdge`:
-  arrow-transported `reverse`, lex-min canonical form.
+  arrow-transported `reverse`, lex-min canonical form; wire-pair
+  geometry fast path `edge_to_boundary` (the identity-vs-geometry
+  tier rule lives in this module's docstring).
 - `src/mu3/vertex.py` — `Vertex`: Z/3 orbit of `(cell, d)` corner
   names, exact S3-scaled corner positions, and the edge↔vertex
   incidence block (complete combinatorial map; laws in

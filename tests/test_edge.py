@@ -8,17 +8,33 @@ tests that would have caught the April note's naive ``-d`` reverse,
 which breaks at every base-cell seam.
 """
 
+import random
+
+import numpy as np
 import pytest
 
 from mu3 import cell_ring1, cells_at_res, is_pentagon
+from mu3.cell import cell_boundary
 from mu3.edge import (
     DirectedEdge,
     UndirectedEdge,
+    corner_leaving_edge,
     directed_edges_of_cell,
+    edge_corner_digits,
+    edge_reverse,
+    edge_to_boundary,
     opposite,
+    outgoing_directions,
     undirected_edges_of_cell,
 )
 from mu3.neighbor import step
+from mu3.vertex import (
+    edge_to_vertices,
+    edge_vertices,
+    vertex_to_vec3,
+    vertices_of_cell,
+)
+from conftest import random_valid_cells
 
 
 def _all_cells():
@@ -159,3 +175,92 @@ def test_seam_reverse_regression(b):
         r = e.reverse()
         assert r.dest() == (b, 6), (e, r)
     assert q0_2 in cell_ring1((b, 6))
+
+
+# --- wire-pair fast paths: edge_to_boundary / edge_to_vertices ---------
+#
+# The geometry tier (edge_to_boundary: no identity objects, one exact
+# center) must agree with the boundary rows and with the identity tier
+# (edge_to_vertices -> vertex_to_vec3). Agreement is to float tolerance,
+# not bitwise: canonical vertex names can develop through a different
+# chart (other cell, or the pentagon d=1 alias), and cross-chart corner
+# projections agree exactly in the algebra but to ~1e-15 in floats.
+
+
+def _assert_close(a, b):
+    assert np.allclose(a, b, rtol=0.0, atol=1e-12), (a, b)
+
+
+def test_edge_to_boundary_matches_cell_boundary_rows():
+    """Each edge's [tail, head] == the matching cell_boundary rows,
+    located by canonical vertex identity (vertices_of_cell is aligned
+    with boundary row order)."""
+    for res in [0, 1, 2]:
+        for c in cells_at_res(res):
+            B = cell_boundary(c, closed=False)
+            verts = vertices_of_cell(c)
+            for d in outgoing_directions(c):
+                seg = edge_to_boundary(c, d)
+                tail, head = edge_to_vertices(c, d)
+                _assert_close(seg[0], B[verts.index(tail)])
+                _assert_close(seg[1], B[verts.index(head)])
+
+
+def test_edge_to_boundary_matches_identity_tier():
+    """Geometry tier == identity tier positions, on every res-1 edge
+    plus seeded random cells at res 3-4."""
+    rng = random.Random(0)
+    cells = list(cells_at_res(1))
+    for res in (3, 4):
+        cells.extend(random_valid_cells(rng, res, 40))
+    for c in cells:
+        for d in outgoing_directions(c):
+            seg = edge_to_boundary(c, d)
+            tail, head = edge_to_vertices(c, d)
+            _assert_close(seg[0], vertex_to_vec3(tail.cell, tail.d))
+            _assert_close(seg[1], vertex_to_vec3(head.cell, head.d))
+
+
+def test_edge_to_vertices_matches_edge_vertices():
+    for c in cells_at_res(1):
+        for e in directed_edges_of_cell(c):
+            assert edge_to_vertices(e.cell, e.d) == edge_vertices(e)
+
+
+def test_wire_pair_validation():
+    for fn in (edge_to_boundary, edge_to_vertices):
+        with pytest.raises(ValueError):
+            fn((0, 0), 1)        # pentagon: d=1 is the deleted direction
+        with pytest.raises(ValueError):
+            fn((0, 2), 0)        # no direction 0
+        with pytest.raises(ValueError):
+            fn((0, 2), 7)        # no direction 7
+        with pytest.raises(ValueError):
+            fn((0, 1), 2)        # invalid cell (leading digit 1)
+
+
+def test_corner_leaving_edge_inverts_tail():
+    """corner_leaving_edge is the tail-map inverse, total over ALL
+    corner names: for every outgoing edge, the tail corner's leaving
+    edge is that edge back; at pentagon cut corners both same-cell
+    names (canonical 6, alias 1) answer the d=2 edge — the stitch
+    making the inverse total is what lets a single pentagon's
+    boundary ring close."""
+    for res in [0, 1, 2]:
+        for c in cells_at_res(res):
+            for d in outgoing_directions(c):
+                tail, _ = edge_corner_digits(d)
+                assert corner_leaving_edge(c, tail) == (c, d)
+            if is_pentagon(c):
+                assert corner_leaving_edge(c, 6) == (c, 2)
+                assert corner_leaving_edge(c, 1) == (c, 2)
+
+
+def test_edge_reverse_matches_directed_edge():
+    """The wire-pair reverse is the DirectedEdge.reverse implementation
+    (delegation makes them equal by construction; this pins the wire
+    form's own roundtrip too)."""
+    for e in _all_edges():
+        rev = e.reverse()
+        assert edge_reverse(e.cell, e.d) == (rev.cell, rev.d)
+        assert edge_reverse(rev.cell, rev.d) == (e.cell, e.d)

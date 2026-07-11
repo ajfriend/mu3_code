@@ -55,12 +55,12 @@ from mu3.cell import (
     active_projection_name,
     cell_boundary,
 )
-from mu3.eisenstein import first_nonzero_digit
 from mu3.face_lattice import get_rot
 from mu3.index import _BOW_COEFFS, _cell_near_stitch, vec3_to_cell_raw
 from mu3.neighbor import resolve_position
 from mu3.traversal import disk_k
 from mu3.vertex import vertices_of_cell
+from conftest import random_valid_cells
 
 _SAGITTA_MAX = 0.35
 
@@ -228,12 +228,7 @@ def _envelope_sample(res):
             c = vec3_to_cell_raw(q / np.linalg.norm(q), res)
             cells.add(c)
             cells.update(cell_ring1(c))
-    n_random = 20
-    while n_random:
-        digits = [rng.randrange(7) for _ in range(res)]
-        if first_nonzero_digit(digits) != 1:
-            cells.add((rng.randrange(12), *digits))
-            n_random -= 1
+    cells.update(random_valid_cells(rng, res, 20))
     return cells
 
 
