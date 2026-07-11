@@ -78,7 +78,9 @@ class Eis:
         return self.a * self.a - self.a * self.b + self.b * self.b
 
     def to_complex(self) -> complex:
-        """Float embedding, for plotting/tests only."""
+        """Float embedding. The float layer's tables derive from the
+        exact ones through this (``face_lattice``,
+        ``cross_pentagon.EISENSTEIN_UNITS``) — plus plotting/tests."""
         return self.a + self.b * _OMEGA_C
 
 

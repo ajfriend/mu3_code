@@ -73,7 +73,9 @@ def _next_boundary_edge(edge: tuple, boundary: set) -> tuple:
     which can't own a boundary edge — so the twin-hop result IS the
     continuation, no test needed (``_trace_ring``'s removal raises
     loudly if that ever broke). This computes what loop-surgery
-    designs cache in linked next-pointers.
+    designs cache in linked next-pointers. The walk's turning obeys a
+    discrete Gauss–Bonnet law, pinned in
+    ``test_polygon.test_turning_law``.
     """
     same_cell = corner_leaving_edge(*edge)
     if same_cell in boundary:

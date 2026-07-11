@@ -9,6 +9,8 @@
   Gosper island boundary).
 - Ring geometry: a single cell's ring is its ``cell_boundary`` (up to
   cyclic rotation).
+- THE TURNING LAW: discrete Gauss-Bonnet on traced rings,
+  ``n_A - n_B = 6 - P`` (see the section at the bottom).
 """
 
 import math
@@ -40,6 +42,13 @@ def _assert_area_matches(polygons, cells):
     total = sum(_polygon_area(p) for p in polygons)
     expect = sum(cell_area(c) for c in cells)
     assert math.isclose(total, expect, rel_tol=1e-9), (total, expect)
+
+
+def _boundary_edges(cell_set):
+    """Brute-force boundary edge set — the tests' independent spelling
+    (the implementation's sweep is fused with its flood fill)."""
+    return {(c, d) for c in cell_set for d in outgoing_directions(c)
+            if step(c, d)[0] not in cell_set}
 
 
 def _cyclic_equal(A, B, atol=1e-12):
@@ -100,9 +109,7 @@ def test_descendant_set_matches_island_oracle(parent):
     res = len(parent) + 1
     cells = [c for c in cells_at_res(res) if c[:len(parent)] == parent]
     cell_set = set(cells)
-    ours = {(c, d) for c in cell_set for d in outgoing_directions(c)
-            if step(c, d)[0] not in cell_set}
-    assert ours == set(island_edges(parent, res))
+    assert _boundary_edges(cell_set) == set(island_edges(parent, res))
 
     polygons = cells_to_multipolygon(cells)
     assert len(polygons) == 1 and len(polygons[0]) == 1
@@ -154,10 +161,11 @@ def test_whole_sphere_no_boundary():
 
 
 def _ring_turns(cells):
-    """(n_A, n_B) per ring, via the same walk _trace_ring performs."""
-    cell_set = {tuple(c) for c in cells}
-    boundary = {(c, d) for c in cell_set for d in outgoing_directions(c)
-                if step(c, d)[0] not in cell_set}
+    """(n_A, n_B) per ring — an INDEPENDENT re-walk of the boundary
+    using only the public edge algebra (deliberately not calling the
+    implementation's tracer: the law is an invariant of the grid, and
+    two spellings agreeing is the oracle)."""
+    boundary = _boundary_edges(set(cells))
     out = []
     while boundary:
         start = next(iter(boundary))

@@ -1,6 +1,7 @@
 import cmath
 import math
 
+from mu3.cross_pentagon import EISENSTEIN_UNITS as units
 from mu3.face_lattice import (
     digit_offset,
     divmod_ei,
@@ -12,7 +13,6 @@ from mu3.face_lattice import (
     s7a,
     s7b,
     to_ab,
-    units,
 )
 
 

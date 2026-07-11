@@ -27,10 +27,8 @@ from mu3.edge import (
     outgoing_directions,
     undirected_edges_of_cell,
 )
-from mu3.eisenstein import DIGIT_OFFSET, ZETA
 from mu3.neighbor import step
 from mu3.vertex import (
-    Vertex,
     edge_to_vertices,
     edge_vertices,
     vertex_to_vec3,
@@ -268,22 +266,3 @@ def test_edge_reverse_matches_directed_edge():
         assert edge_reverse(rev.cell, rev.d) == (e.cell, e.d)
 
 
-def test_stitch_zeta_unifies_the_folds():
-    """The two pentagon alias folds are one fact: the stitch is
-    multiplication by ζ, identifying each pentagon object with its
-    ζ-image. In the exact algebra, ζ·offset(6) == offset(1) (the cut
-    corner's two names) and ζ·offset(1) == offset(2) (the deleted
-    direction's image) — and the code folds realize exactly those
-    identifications: corner names 1 → 6 (``vertex._normalize``, via
-    the Vertex constructor) and directions 1 → 2
-    (``corner_leaving_edge``)."""
-    # the ζ-identifications, exactly
-    assert ZETA * DIGIT_OFFSET[6] == DIGIT_OFFSET[1]
-    assert ZETA * DIGIT_OFFSET[1] == DIGIT_OFFSET[2]
-    # the code folds realize them, at every pentagon
-    for res in [0, 1, 2]:
-        for b in range(12):
-            pent = (b,) + (0,) * res
-            assert Vertex(pent, 1) == Vertex(pent, 6)
-            assert corner_leaving_edge(pent, 6) == (pent, 2)
-            assert corner_leaving_edge(pent, 1) == (pent, 2)

@@ -39,9 +39,9 @@ omega = UNITS[2].to_complex()
 # incident face center; closed form = sqrt(14 - 6*sqrt(5)) ≈ 0.7639.
 r_face = math.sqrt(14 - 6 * math.sqrt(5))
 
-units = tuple(u.to_complex() for u in UNITS)
-
 # Digit -> offset in the flat plane; angles per the module docstring.
+# (The float view of the units themselves is
+# cross_pentagon.EISENSTEIN_UNITS — one home, not two.)
 digit_offset: dict[int, complex] = {
     d: z.to_complex() for d, z in DIGIT_OFFSET.items()
 }
