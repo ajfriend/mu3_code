@@ -70,8 +70,9 @@ def edge_reverse(cell: tuple, d: int) -> tuple[tuple, int]:
     """Wire-pair reverse: the same undirected edge traversed the other
     way, as ``(cell, d)``. One walk; the direction is ``opposite(d)``
     transported by the arrow. The single implementation —
-    :meth:`DirectedEdge.reverse` delegates here. No validation (the
-    fast tier): lift to ``DirectedEdge`` for the validated form."""
+    :meth:`DirectedEdge.reverse` delegates here. No validation: wire
+    pairs in and out; lift to ``DirectedEdge`` for the validated
+    form."""
     c, rot = step(cell, d)
     return c, rotate_digit_ccw(opposite(d), rot)
 
@@ -115,9 +116,8 @@ class DirectedEdge:
         return c
 
     def reverse(self) -> 'DirectedEdge':
-        """The same undirected edge, traversed the other way. One walk;
-        the direction is opposite(d) transported by the arrow
-        (:func:`edge_reverse` is the implementation)."""
+        """The same undirected edge, traversed the other way —
+        :func:`edge_reverse`, validated."""
         return DirectedEdge(*edge_reverse(self.cell, self.d))
 
     def rotate_ccw(self, steps: int = 1) -> 'DirectedEdge':
