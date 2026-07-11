@@ -306,7 +306,27 @@ def cell_center(cell: Sequence[int]) -> Vec3:
 
 
 def _spherical_polygon_area(V: np.ndarray) -> float:
-    """Spherical polygon area on the unit sphere (steradians).
+    """Right-hand-rule enclosed area of the ring, in [0, 4π):
+    :func:`_signed_spherical_excess` (the numerics live there),
+    normalized.
+
+    CCW-from-outside rings (every mu3 cell, every outer boundary) are
+    already positive; CW rings — routine, e.g. polygon holes read as
+    the area they enclose — take the +4π. Doubles as
+    ``mu3.polygon``'s ring-orientation sort key: the outer ring is
+    the one enclosing the smallest area.
+    """
+    sum_val = _signed_spherical_excess(V)
+    if sum_val < 0.0:
+        sum_val += 4.0 * math.pi
+    return sum_val
+
+
+def _signed_spherical_excess(V: np.ndarray) -> float:
+    """Signed spherical excess of the ring ``V``: positive for
+    CCW-from-outside, negative for CW — the orientation bit
+    ``mu3.polygon`` classifies holes with. No +4π normalization
+    (that is :func:`_spherical_polygon_area`).
 
     Fan-triangulate around V[0] and sum the spherical excess of each
     fan triangle (V[0], V[i], V[i+1]) using a fully chord-based
@@ -351,10 +371,6 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
     lat/lng Cagnoli formula, which loses everything to f64 underflow
     there.
 
-    Sign convention: CCW-from-outside convex polygons (every mu3
-    cell) sum to a positive value directly. The +4π fallback catches
-    pathological non-convex inputs.
-
     See ``~/work/sphere_area/notes/2026-04-30-spherical-polygon-area.qmd``
     for the full derivation and the journey through prior attempts.
     """
@@ -395,23 +411,17 @@ def _spherical_polygon_area(V: np.ndarray) -> float:
         c = (t - sum_val) - cy
         sum_val = t
 
-    # Interior fan apex V[0] → CCW convex polygons give positive sum
-    # directly. Fallback for pathological non-convex inputs.
-    if sum_val < 0.0:
-        cy = 4.0 * math.pi - c
-        t = sum_val + cy
-        c = (t - sum_val) - cy
-        sum_val = t
     return sum_val
 
 
 def cell_area(cell: Sequence[int]) -> float:
     """Spherical area of the cell, in steradians (unit-sphere).
 
-    Always positive (the H3 cagnoli implementation in
-    ``_spherical_polygon_area`` normalizes any negative signed-area sums
-    that arise for southern-hemisphere or pole-wrapping cells). Sum
-    over every cell at a given resolution equals 4π (the sphere).
+    Always positive (the chord-based VOS excess in
+    ``_signed_spherical_excess``, normalized by
+    ``_spherical_polygon_area`` — the sign is ring orientation, and
+    cell boundaries are CCW). Sum over every cell at a given
+    resolution equals 4π (the sphere).
     """
     return _spherical_polygon_area(cell_boundary(cell, closed=False))
 
